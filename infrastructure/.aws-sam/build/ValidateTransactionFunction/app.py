@@ -17,9 +17,13 @@ def lambda_handler(event, context):
     - Valida que el tag existe y está activo (si aplica)
     """
     try:
-        # El evento viene de Step Functions, que ya extrajo el detail de EventBridge
-        # Step Functions pasa el detail directamente como input
-        detail = event
+        # El evento viene de Step Functions, que recibe el evento de EventBridge
+        # EventBridge puede pasar el evento envuelto o directamente el detail
+        # Extraemos el detail si está envuelto, o usamos el evento completo si ya es el detail
+        if 'detail' in event and isinstance(event['detail'], dict):
+            detail = event['detail']
+        else:
+            detail = event
         
         placa = detail.get('placa')
         peaje_id = detail.get('peaje_id')
@@ -61,7 +65,13 @@ def lambda_handler(event, context):
             
             if 'Item' in user_response:
                 user_info = user_response['Item']
-                user_type = 'registrado'
+                # Usar tipo_usuario del registro si existe, sino asumir registrado
+                user_type = user_info.get('tipo_usuario', 'registrado')
+                # Si el tipo_usuario es "no_registrado", mantenerlo así
+                if user_info.get('tipo_usuario') == 'no_registrado':
+                    user_type = 'no_registrado'
+                else:
+                    user_type = 'registrado'
         
         # Preparar resultado para Step Functions
         result = {

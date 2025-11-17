@@ -64,7 +64,7 @@ Resources:
           InputTransformer:
             InputPathsMap:
               detail: "$.detail"
-            InputTemplate: "<detail>"
+            InputTemplate: '{"detail": <detail>}'
 
   #### Step Functions ####
   ProcessTollStateMachine:
@@ -88,6 +88,15 @@ Resources:
                   - States.ALL
                 ResultPath: "$.error"
                 Next: HandleError
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                  - Lambda.TooManyRequestsException
+                IntervalSeconds: 2
+                MaxAttempts: 3
+                BackoffRate: 2
           DetermineUserType:
             Type: Choice
             Comment: "Decide qué flujo seguir según el tipo de usuario"
@@ -105,28 +114,69 @@ Resources:
           ProcessTagUser:
             Type: Pass
             Comment: "Flujo para usuario con Tag (Caso C)"
-            Result: "Procesando usuario con Tag"
+            InputPath: "$"
+            OutputPath: "$"
+            Result:
+              processing_note: "Usuario con Tag RFID - Caso C"
+            ResultPath: "$.processing_note"
             Next: CalculateCharge
-          ProcessRegisteredUser:
-            Type: Pass
-            Comment: "Flujo para usuario registrado sin Tag (Caso B)"
-            Result: "Procesando usuario registrado"
-            Next: CalculateCharge
-          ProcessUnregisteredUser:
-            Type: Pass
-            Comment: "Flujo para usuario no registrado (Caso A)"
-            Result: "Procesando usuario no registrado"
-            Next: CalculateCharge
-          CalculateCharge:
+          UpdateTagBalance:
             Type: Task
-            Resource: !GetAtt CalculateChargeFunction.Arn
-            Comment: "Calcula monto según tipo de usuario (aplica tarifas diferentes)"
+            Resource: !GetAtt UpdateTagBalanceFunction.Arn
+            Comment: "Actualiza balance del tag y maneja deuda si aplica"
+            InputPath: "$"
+            Parameters:
+              tag_id.$: "$.tag_info.tag_id"
+              amount.$: "$.charge.total"
+              transaction_id.$: "$.event_id"
+              timestamp.$: "$.timestamp"
+            ResultPath: "$.tag_balance_update"
             Next: PersistTransaction
             Catch:
               - ErrorEquals:
                   - States.ALL
                 ResultPath: "$.error"
                 Next: HandleError
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                  - Lambda.TooManyRequestsException
+                IntervalSeconds: 2
+                MaxAttempts: 3
+                BackoffRate: 2
+          ProcessRegisteredUser:
+            Type: Pass
+            Comment: "Flujo para usuario registrado sin Tag (Caso B)"
+            InputPath: "$"
+            OutputPath: "$"
+            Result:
+              processing_note: "Usuario registrado sin Tag - Caso B"
+            ResultPath: "$.processing_note"
+            Next: CalculateCharge
+          ProcessUnregisteredUser:
+            Type: Pass
+            Comment: "Flujo para usuario no registrado (Caso A)"
+            InputPath: "$"
+            OutputPath: "$"
+            Result:
+              processing_note: "Usuario no registrado - Caso A"
+            ResultPath: "$.processing_note"
+            Next: CalculateCharge
+          CalculateCharge:
+            Type: Task
+            Resource: !GetAtt CalculateChargeFunction.Arn
+            Comment: "Calcula monto según tipo de usuario (aplica tarifas diferentes)"
+            Next: CheckIfTagUser
+          CheckIfTagUser:
+            Type: Choice
+            Comment: "Decide si actualizar balance de tag"
+            Choices:
+              - Variable: "$.user_type"
+                StringEquals: "tag"
+                Next: UpdateTagBalance
+            Default: PersistTransaction
           PersistTransaction:
             Type: Task
             Resource: !GetAtt PersistTransactionFunction.Arn
@@ -137,20 +187,47 @@ Resources:
                   - States.ALL
                 ResultPath: "$.error"
                 Next: HandleError
+            Retry:
+              - ErrorEquals:
+                  - Lambda.ServiceException
+                  - Lambda.AWSLambdaException
+                  - Lambda.SdkClientException
+                  - Lambda.TooManyRequestsException
+                IntervalSeconds: 2
+                MaxAttempts: 3
+                BackoffRate: 2
           SendNotification:
+            Type: Choice
+            Comment: "Decide si enviar notificación según tipo de usuario"
+            Choices:
+              - Variable: "$.user_type"
+                StringEquals: "no_registrado"
+                Next: EndState
+            Default: SendNotificationTask
+          SendNotificationTask:
             Type: Task
             Resource: !GetAtt SendNotificationFunction.Arn
             Comment: "Envía notificación vía SNS"
             End: true
-            Catch:
-              - ErrorEquals:
-                  - States.ALL
-                ResultPath: "$.error"
-                Next: HandleError
+          EndState:
+            Type: Succeed
+            Comment: "Transacción pendiente - esperando pago"
           HandleError:
+            Type: Pass
+            Comment: "Maneja errores y prepara información de fallo"
+            Parameters:
+              error.$: "$.error"
+              input.$: "$"
+              error_timestamp.$: "$$.State.EnteredTime"
+              execution_arn.$: "$$.Execution.Id"
+              state_machine_name.$: "$$.StateMachine.Name"
+              error_message.$: "$.error.Error"
+              error_cause.$: "$.error.Cause"
+            Next: FailState
+          FailState:
             Type: Fail
             Error: "ProcessingFailed"
-            Cause: "Error processing toll transaction"
+            Cause: "Error en Step Functions. Revisa $.error para más detalles."
       Role: !GetAtt StepFunctionsExecutionRole.Arn
       Logging:
         Level: ALL
@@ -173,9 +250,18 @@ Resources:
       AttributeDefinitions:
         - AttributeName: placa
           AttributeType: S
+        - AttributeName: email
+          AttributeType: S
       KeySchema:
         - AttributeName: placa
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: email-index
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
       TableName: !Sub "UsersVehicles-${StageName}"
 
   Tags:
@@ -329,7 +415,7 @@ Resources:
       FunctionName: !Sub "${ProjectName}-seed-csv-${StageName}"
       CodeUri: ../src/functions/seed_csv
       Handler: app.lambda_handler
-      Description: Pobla las tablas DynamoDB con datos iniciales
+      Description: Pobla las tablas DynamoDB con datos iniciales desde CSV
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersVehicles
@@ -385,6 +471,39 @@ Resources:
         - SNSPublishMessagePolicy:
             TopicName: !Ref NotificationsTopic
 
+  UpdateTagBalanceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-update-tag-balance-${StageName}"
+      CodeUri: ../src/functions/update_tag_balance
+      Handler: app.lambda_handler
+      Description: Actualiza balance del tag y maneja deuda/mora
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Tags
+
+  CompletePendingTransactionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-complete-pending-transaction-${StageName}"
+      CodeUri: ../src/functions/complete_pending_transaction
+      Handler: app.lambda_handler
+      Description: Completa transacciones pendientes de usuarios no registrados
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Transactions
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Invoices
+        - SNSPublishMessagePolicy:
+            TopicName: !Ref NotificationsTopic
+      Events:
+        ApiCompleteEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /transactions/{event_id}/complete
+            Method: post
+
   #### IAM Roles ####
   
   EventBridgeStepFunctionsRole:
@@ -428,6 +547,7 @@ Resources:
                 Resource:
                   - !GetAtt ValidateTransactionFunction.Arn
                   - !GetAtt CalculateChargeFunction.Arn
+                  - !GetAtt UpdateTagBalanceFunction.Arn
                   - !GetAtt PersistTransactionFunction.Arn
                   - !GetAtt SendNotificationFunction.Arn
               - Effect: Allow
@@ -455,6 +575,9 @@ Outputs:
   InvoicesHistoryEndpoint:
     Description: Endpoint para consultar historial de invoices
     Value: !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/history/invoices/{placa}"
+  CompleteTransactionEndpoint:
+    Description: Endpoint para completar transacciones pendientes
+    Value: !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/transactions/{event_id}/complete"
   EventBusName:
     Description: Nombre del EventBridge Bus
     Value: !Ref GuatePassBus
