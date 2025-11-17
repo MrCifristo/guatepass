@@ -3,6 +3,7 @@ version = 0.1
 [default]
 [default.global.parameters]
 stack_name = "guatepass-stack"
+region = "us-east-1"
 
 [default.build.parameters]
 cached = true
@@ -15,9 +16,8 @@ lint = true
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 resolve_s3 = true
-region = "us-east-1"
 image_repositories = []
-parameter_overrides = "Environment=\"dev\" ProjectName=\"guatepass\""
+parameter_overrides = "StageName=\"dev\" ProjectName=\"guatepass\""
 s3_prefix = "guatepass-stack"
 disable_rollback = true
 

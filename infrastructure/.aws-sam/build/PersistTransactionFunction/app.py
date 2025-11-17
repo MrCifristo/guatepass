@@ -26,9 +26,13 @@ def lambda_handler(event, context):
         invoices_table = dynamodb.Table(INVOICES_TABLE)
         
         # Crear registro de transacción
+        # Usar timestamp como ts para la clave primaria (RANGE key)
+        ts = timestamp if timestamp else datetime.utcnow().isoformat() + 'Z'
+        
         transaction_item = {
+            'placa': placa,  # HASH key
+            'ts': ts,  # RANGE key
             'event_id': event_id,
-            'placa': placa,
             'peaje_id': event.get('peaje_id'),
             'user_type': event.get('user_type'),
             'tag_id': event.get('tag_info', {}).get('tag_id') if event.get('tag_info') else None,
@@ -36,7 +40,7 @@ def lambda_handler(event, context):
             'subtotal': charge.get('subtotal', 0),
             'tax': charge.get('tax', 0),
             'currency': charge.get('currency', 'GTQ'),
-            'timestamp': timestamp,
+            'timestamp': timestamp,  # Mantener también timestamp para el GSI
             'status': 'completed',
             'created_at': datetime.utcnow().isoformat() + 'Z'
         }
@@ -47,9 +51,10 @@ def lambda_handler(event, context):
         # Crear invoice (factura) - puede agrupar múltiples transacciones
         # Por simplicidad, creamos un invoice por transacción
         invoice_id = f"INV-{event_id[:8]}-{placa}"
+        created_at = datetime.utcnow().isoformat() + 'Z'
         invoice_item = {
-            'invoice_id': invoice_id,
-            'placa': placa,
+            'placa': placa,  # HASH key
+            'invoice_id': invoice_id,  # RANGE key
             'event_id': event_id,
             'amount': charge.get('total', 0),
             'subtotal': charge.get('subtotal', 0),
@@ -57,7 +62,7 @@ def lambda_handler(event, context):
             'currency': charge.get('currency', 'GTQ'),
             'peaje_id': event.get('peaje_id'),
             'status': 'paid',
-            'created_at': datetime.utcnow().isoformat() + 'Z',
+            'created_at': created_at,  # Para el GSI placa-created-index
             'transactions': [transaction_item]
         }
         

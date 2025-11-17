@@ -1,0 +1,13 @@
+{
+  "body": "{\"placa\":\"P-123ABC\",\"peaje_id\":\"PEAJE_ZONA10\",\"tag_id\":\"TAG-001\",\"timestamp\":\"2025-01-27T10:00:00Z\"}",
+  "httpMethod": "POST",
+  "path": "/webhook/toll",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "requestContext": {
+    "requestId": "test-request-id",
+    "stage": "dev"
+  }
+}
+

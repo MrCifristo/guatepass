@@ -1,0 +1,472 @@
+{
+	"info": {
+		"_postman_id": "guatepass-collection-2025",
+		"name": "GuatePass - API Local Testing",
+		"description": "Colección de Postman para probar el sistema GuatePass localmente",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Setup - Seed Data",
+			"item": [
+				{
+					"name": "Seed CSV - Poblar Datos Iniciales",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has users_inserted\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('users_inserted');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/seed",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"seed"
+							]
+						},
+						"description": "⚠️ NOTA: Este endpoint no está expuesto en API Gateway. Debes invocarlo directamente con SAM CLI:\n\n```bash\nsam local invoke SeedCsvFunction -e events/empty-event.json\n```\n\nO desplegar y usar AWS CLI:\n```bash\naws lambda invoke --function-name guatepass-seed-csv-dev --payload '{}' response.json\n```"
+					},
+					"response": []
+				}
+			],
+			"description": "Poblar las tablas DynamoDB con datos iniciales antes de probar el flujo completo"
+		},
+		{
+			"name": "2. Webhook - Ingesta de Eventos",
+			"item": [
+				{
+					"name": "POST /webhook/toll - Usuario con Tag",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has event_id\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('event_id');",
+									"    pm.expect(jsonData.status).to.eql('queued');",
+									"    ",
+									"    // Guardar event_id para usar en otras pruebas",
+									"    pm.environment.set('last_event_id', jsonData.event_id);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"placa\": \"P-456DEF\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"tag_id\": \"TAG-001\",\n    \"timestamp\": \"2025-01-27T10:00:00Z\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/webhook/toll",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"webhook",
+								"toll"
+							]
+						},
+						"description": "Envía un evento de peaje para un usuario con Tag. Este endpoint:\n1. Valida el peaje y tag\n2. Publica evento en EventBridge\n3. Retorna event_id y status 'queued'\n\n**Nota:** En local, EventBridge no funciona realmente, pero la función retornará éxito."
+					},
+					"response": []
+				},
+				{
+					"name": "POST /webhook/toll - Usuario Registrado (sin Tag)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"var jsonData = pm.response.json();",
+									"pm.environment.set('last_event_id', jsonData.event_id);"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"placa\": \"P-123ABC\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"timestamp\": \"2025-01-27T10:05:00Z\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/webhook/toll",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"webhook",
+								"toll"
+							]
+						},
+						"description": "Envía un evento de peaje para un usuario registrado sin Tag"
+					},
+					"response": []
+				},
+				{
+					"name": "POST /webhook/toll - Usuario No Registrado",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"placa\": \"P-999XXX\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"timestamp\": \"2025-01-27T10:10:00Z\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/webhook/toll",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"webhook",
+								"toll"
+							]
+						},
+						"description": "Envía un evento de peaje para un usuario NO registrado"
+					},
+					"response": []
+				},
+				{
+					"name": "POST /webhook/toll - Error: Peaje Inválido",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});",
+									"",
+									"pm.test(\"Error message about invalid peaje\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('error');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"placa\": \"P-123ABC\",\n    \"peaje_id\": \"PEAJE_INVALIDO\",\n    \"timestamp\": \"2025-01-27T10:00:00Z\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/webhook/toll",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"webhook",
+								"toll"
+							]
+						},
+						"description": "Prueba de validación: debe retornar error 400 si el peaje no existe"
+					},
+					"response": []
+				},
+				{
+					"name": "POST /webhook/toll - Error: Campos Faltantes",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"placa\": \"P-123ABC\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/webhook/toll",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"webhook",
+								"toll"
+							]
+						},
+						"description": "Prueba de validación: debe retornar error 400 si faltan campos requeridos"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints para ingesta de eventos de peaje"
+		},
+		{
+			"name": "3. Historial - Consultas",
+			"item": [
+				{
+					"name": "GET /history/payments/{placa} - Usuario con Tag",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has items array\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('items');",
+									"    pm.expect(jsonData.type).to.eql('payments');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/history/payments/P-456DEF",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"history",
+								"payments",
+								"P-456DEF"
+							]
+						},
+						"description": "Consulta el historial de pagos para un usuario con Tag"
+					},
+					"response": []
+				},
+				{
+					"name": "GET /history/payments/{placa} - Con Paginación",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/history/payments/P-123ABC?limit=5",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"history",
+								"payments",
+								"P-123ABC"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "5"
+								}
+							]
+						},
+						"description": "Consulta historial con límite de resultados"
+					},
+					"response": []
+				},
+				{
+					"name": "GET /history/invoices/{placa}",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has invoices\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('items');",
+									"    pm.expect(jsonData.type).to.eql('invoices');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/history/invoices/P-456DEF",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"history",
+								"invoices",
+								"P-456DEF"
+							]
+						},
+						"description": "Consulta el historial de invoices (facturas) para una placa"
+					},
+					"response": []
+				},
+				{
+					"name": "GET /history/payments/{placa} - Error: Placa Faltante",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 400\", function () {",
+									"    pm.response.to.have.status(400);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/history/payments/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"history",
+								"payments",
+								""
+							]
+						},
+						"description": "Prueba de validación: debe retornar error si falta la placa"
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints para consultar historial de transacciones e invoices"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://127.0.0.1:3000",
+			"type": "string"
+		}
+	]
+}
+
