@@ -94,7 +94,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"placa\": \"P-456DEF\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"tag_id\": \"TAG-001\",\n    \"timestamp\": \"2025-01-27T10:00:00Z\"\n}",
+							"raw": "{\n    \"placa\": \"P-778NDR\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"tag_id\": \"TAG-109\",\n    \"timestamp\": \"2025-01-27T10:00:00Z\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -143,7 +143,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"placa\": \"P-123ABC\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"timestamp\": \"2025-01-27T10:05:00Z\"\n}",
+							"raw": "{\n    \"placa\": \"P-006TEK\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"timestamp\": \"2025-01-27T10:05:00Z\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -176,7 +176,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"placa\": \"P-999XXX\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"timestamp\": \"2025-01-27T10:10:00Z\"\n}",
+							"raw": "{\n    \"placa\": \"P-900XXX\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"timestamp\": \"2025-01-27T10:10:00Z\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -325,7 +325,7 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/history/payments/P-456DEF",
+							"raw": "{{base_url}}/history/payments/P-778NDR",
 							"host": [
 								"{{base_url}}"
 							],
@@ -390,7 +390,7 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/history/invoices/P-456DEF",
+							"raw": "{{base_url}}/history/invoices/P-778NDR",
 							"host": [
 								"{{base_url}}"
 							],
@@ -464,8 +464,9 @@
 	"variable": [
 		{
 			"key": "base_url",
-			"value": "http://127.0.0.1:3000",
-			"type": "string"
+			"value": "https://1peur8nfu4.execute-api.us-east-1.amazonaws.com/dev",
+			"type": "string",
+			"description": "URL base de la API Gateway. Actualiza con tu URL real obtenida de CloudFormation Outputs."
 		}
 	]
 }

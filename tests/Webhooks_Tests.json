@@ -1,0 +1,182 @@
+[
+  {
+    "placa": "P-778NDR",
+    "peaje_id": "PEAJE_ZONA10",
+    "tag_id": "TAG-109",
+    "timestamp": "2025-10-29T07:00:00Z"
+  },
+  {
+    "placa": "P-438EDF",
+    "peaje_id": "PEAJE_CARRETERA_EL_SALVADOR",
+    "tag_id": "TAG-072",
+    "timestamp": "2025-10-29T07:32:00Z"
+  },
+  {
+    "placa": "P-293KTT",
+    "peaje_id": "PEAJE_PALIN",
+    "tag_id": "TAG-097",
+    "timestamp": "2025-10-29T08:04:00Z"
+  },
+  {
+    "placa": "P-101UCR",
+    "peaje_id": "PEAJE_CHIMAL",
+    "tag_id": "TAG-059",
+    "timestamp": "2025-10-29T08:36:00Z"
+  },
+  {
+    "placa": "P-386RPW",
+    "peaje_id": "PEAJE_ATLANTICO",
+    "tag_id": "TAG-054",
+    "timestamp": "2025-10-29T09:08:00Z"
+  },
+  {
+    "placa": "P-012HKC",
+    "peaje_id": "PEAJE_MIXCO",
+    "tag_id": "TAG-098",
+    "timestamp": "2025-10-29T09:40:00Z"
+  },
+  {
+    "placa": "P-067FYW",
+    "peaje_id": "PEAJE_SAN_LUCAS",
+    "tag_id": "TAG-118",
+    "timestamp": "2025-10-29T10:12:00Z"
+  },
+  {
+    "placa": "P-163KNX",
+    "peaje_id": "PEAJE_PUERTO_QUETZAL",
+    "tag_id": "TAG-057",
+    "timestamp": "2025-10-29T10:44:00Z"
+  },
+  {
+    "placa": "P-525KOO",
+    "peaje_id": "PEAJE_COSTA_SUR",
+    "tag_id": "TAG-001",
+    "timestamp": "2025-10-29T11:16:00Z"
+  },
+  {
+    "placa": "P-382TOU",
+    "peaje_id": "PEAJE_ANTIGUA",
+    "tag_id": "TAG-029",
+    "timestamp": "2025-10-29T11:48:00Z"
+  },
+  {
+    "placa": "P-006TEK",
+    "peaje_id": "PEAJE_ZONA10",
+    "tag_id": "",
+    "timestamp": "2025-10-29T08:00:00Z"
+  },
+  {
+    "placa": "P-947QOR",
+    "peaje_id": "PEAJE_CARRETERA_EL_SALVADOR",
+    "tag_id": "",
+    "timestamp": "2025-10-29T08:23:00Z"
+  },
+  {
+    "placa": "P-141NCB",
+    "peaje_id": "PEAJE_PALIN",
+    "tag_id": "",
+    "timestamp": "2025-10-29T08:46:00Z"
+  },
+  {
+    "placa": "P-065KPM",
+    "peaje_id": "PEAJE_CHIMAL",
+    "tag_id": "",
+    "timestamp": "2025-10-29T09:09:00Z"
+  },
+  {
+    "placa": "P-896SZT",
+    "peaje_id": "PEAJE_ATLANTICO",
+    "tag_id": "",
+    "timestamp": "2025-10-29T09:32:00Z"
+  },
+  {
+    "placa": "P-168JZG",
+    "peaje_id": "PEAJE_MIXCO",
+    "tag_id": "",
+    "timestamp": "2025-10-29T09:55:00Z"
+  },
+  {
+    "placa": "P-598MXN",
+    "peaje_id": "PEAJE_SAN_LUCAS",
+    "tag_id": "",
+    "timestamp": "2025-10-29T10:18:00Z"
+  },
+  {
+    "placa": "P-955JBG",
+    "peaje_id": "PEAJE_PUERTO_QUETZAL",
+    "tag_id": "",
+    "timestamp": "2025-10-29T10:41:00Z"
+  },
+  {
+    "placa": "P-433VBI",
+    "peaje_id": "PEAJE_COSTA_SUR",
+    "tag_id": "",
+    "timestamp": "2025-10-29T11:04:00Z"
+  },
+  {
+    "placa": "P-009CYR",
+    "peaje_id": "PEAJE_ANTIGUA",
+    "tag_id": "",
+    "timestamp": "2025-10-29T11:27:00Z"
+  },
+  {
+    "placa": "P-900XXX",
+    "peaje_id": "PEAJE_ZONA10",
+    "tag_id": "",
+    "timestamp": "2025-10-29T09:00:00Z"
+  },
+  {
+    "placa": "P-901XXX",
+    "peaje_id": "PEAJE_CARRETERA_EL_SALVADOR",
+    "tag_id": "",
+    "timestamp": "2025-10-29T09:18:00Z"
+  },
+  {
+    "placa": "P-902XXX",
+    "peaje_id": "PEAJE_PALIN",
+    "tag_id": "",
+    "timestamp": "2025-10-29T09:36:00Z"
+  },
+  {
+    "placa": "P-903XXX",
+    "peaje_id": "PEAJE_CHIMAL",
+    "tag_id": "",
+    "timestamp": "2025-10-29T09:54:00Z"
+  },
+  {
+    "placa": "P-904XXX",
+    "peaje_id": "PEAJE_ATLANTICO",
+    "tag_id": "",
+    "timestamp": "2025-10-29T10:12:00Z"
+  },
+  {
+    "placa": "P-905XXX",
+    "peaje_id": "PEAJE_MIXCO",
+    "tag_id": "",
+    "timestamp": "2025-10-29T10:30:00Z"
+  },
+  {
+    "placa": "P-906XXX",
+    "peaje_id": "PEAJE_SAN_LUCAS",
+    "tag_id": "",
+    "timestamp": "2025-10-29T10:48:00Z"
+  },
+  {
+    "placa": "P-907XXX",
+    "peaje_id": "PEAJE_PUERTO_QUETZAL",
+    "tag_id": "",
+    "timestamp": "2025-10-29T11:06:00Z"
+  },
+  {
+    "placa": "P-908XXX",
+    "peaje_id": "PEAJE_COSTA_SUR",
+    "tag_id": "",
+    "timestamp": "2025-10-29T11:24:00Z"
+  },
+  {
+    "placa": "P-909XXX",
+    "peaje_id": "PEAJE_ANTIGUA",
+    "tag_id": "",
+    "timestamp": "2025-10-29T11:42:00Z"
+  }
+]

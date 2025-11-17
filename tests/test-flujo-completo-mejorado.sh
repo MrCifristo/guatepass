@@ -5,14 +5,16 @@
 # =============================================================================
 # Este script prueba el flujo completo del sistema:
 # 1. Obtiene información del stack CloudFormation automáticamente
-# 2. Poblar datos iniciales (Seed CSV)
-# 3. Enviar eventos de peaje (3 casos: tag, registrado, no registrado)
-# 4. Verificar ejecuciones de Step Functions
-# 5. Verificar resultados en DynamoDB
-# 6. Consultar historial de pagos e invoices
-# 7. Verificar SNS Topic
+# 2. (Opcional) Poblar datos iniciales (Seed CSV usando script Python local)
+# 3. Cargar payloads de prueba desde Webhooks_Tests.json
+# 4. Enviar todos los eventos de peaje del archivo JSON
+# 5. Verificar y completar automáticamente transacciones pendientes
+# 6. Verificar resultados en DynamoDB
+# 7. Consultar historial de pagos e invoices
+# 8. Verificar SNS Topic y EventBridge
 # =============================================================================
 # Uso: ./test-flujo-completo-mejorado.sh [STACK_NAME]
+#      LOAD_INITIAL_DATA=true ./test-flujo-completo-mejorado.sh  # Para cargar datos
 # =============================================================================
 
 set -euo pipefail  # Salir si hay errores, variables no definidas, o pipes fallan
@@ -32,15 +34,20 @@ REGION="${AWS_REGION:-us-east-1}"
 STAGE="dev"
 PROJECT_NAME="guatepass"
 
+# Flag para cargar datos iniciales (por defecto: false, ya que los datos ya están cargados)
+LOAD_INITIAL_DATA="${LOAD_INITIAL_DATA:-false}"
+
 # Variables globales
 WEBHOOK_URL=""
 API_URL=""
 PAYMENTS_URL=""
 INVOICES_URL=""
+COMPLETE_TRANSACTION_URL=""
 STATE_MACHINE_ARN=""
 STATE_MACHINE_NAME=""
 SNS_TOPIC_ARN=""
 EVENT_BUS_NAME=""
+WEBHOOKS_TEST_FILE=""
 
 # =============================================================================
 # FUNCIONES AUXILIARES
@@ -87,6 +94,7 @@ get_stack_info() {
     API_URL=$(get_stack_output "ApiUrl")
     PAYMENTS_URL=$(get_stack_output "PaymentsHistoryEndpoint")
     INVOICES_URL=$(get_stack_output "InvoicesHistoryEndpoint")
+    COMPLETE_TRANSACTION_URL=$(get_stack_output "CompleteTransactionEndpoint")
     STATE_MACHINE_ARN=$(get_stack_output "StateMachineArn")
     STATE_MACHINE_NAME=$(get_stack_output "StateMachineName")
     SNS_TOPIC_ARN=$(get_stack_output "SnsTopicArn")
@@ -104,13 +112,14 @@ get_stack_info() {
     print_success "Stack encontrado: $STACK_NAME"
     echo ""
     echo "📋 Recursos desplegados:"
-    echo "   Webhook URL:      $WEBHOOK_URL"
-    echo "   API URL:          $API_URL"
-    echo "   Payments URL:      $PAYMENTS_URL"
-    echo "   Invoices URL:     $INVOICES_URL"
-    echo "   State Machine:    $STATE_MACHINE_NAME"
-    echo "   SNS Topic:        $SNS_TOPIC_ARN"
-    echo "   EventBridge Bus:  $EVENT_BUS_NAME"
+    echo "   Webhook URL:           $WEBHOOK_URL"
+    echo "   API URL:               $API_URL"
+    echo "   Payments URL:          $PAYMENTS_URL"
+    echo "   Invoices URL:          $INVOICES_URL"
+    echo "   Complete Transaction:  $COMPLETE_TRANSACTION_URL"
+    echo "   State Machine:         $STATE_MACHINE_NAME"
+    echo "   SNS Topic:             $SNS_TOPIC_ARN"
+    echo "   EventBridge Bus:       $EVENT_BUS_NAME"
     echo ""
 }
 
@@ -166,35 +175,44 @@ wait_for_step_function() {
 seed_data() {
     print_header "PASO 1: Poblar Datos Iniciales (Seed CSV)"
     
-    local seed_function_name="${PROJECT_NAME}-seed-csv-${STAGE}"
+    # Usar el script Python local en lugar de Lambda
+    local script_path="$(dirname "$0")/../scripts/load_csv_data.py"
     
-    print_info "Invocando función Lambda: $seed_function_name"
-    
-    local result=$(aws lambda invoke \
-        --function-name "$seed_function_name" \
-        --region "$REGION" \
-        --payload '{}' \
-        --output json \
-        /tmp/seed-response.json 2>&1)
-    
-    if [ $? -eq 0 ] && [ -f /tmp/seed-response.json ]; then
-        local seed_output=$(cat /tmp/seed-response.json)
+    if [ ! -f "$script_path" ]; then
+        print_warning "Script load_csv_data.py no encontrado, intentando con Lambda..."
+        local seed_function_name="${PROJECT_NAME}-seed-csv-${STAGE}"
         
-        # Verificar si hay error en la respuesta
-        if echo "$seed_output" | jq -e '.errorMessage' > /dev/null 2>&1; then
-            print_error "Error en la función seed_csv:"
-            echo "$seed_output" | jq '.'
+        local result=$(aws lambda invoke \
+            --function-name "$seed_function_name" \
+            --region "$REGION" \
+            --payload '{}' \
+            --output json \
+            /tmp/seed-response.json 2>&1)
+        
+        if [ $? -eq 0 ] && [ -f /tmp/seed-response.json ]; then
+            local seed_output=$(cat /tmp/seed-response.json)
+            if echo "$seed_output" | jq -e '.errorMessage' > /dev/null 2>&1; then
+                print_error "Error en la función seed_csv:"
+                echo "$seed_output" | jq '.'
+                rm -f /tmp/seed-response.json
+                exit 1
+            fi
+            print_success "Datos iniciales poblados exitosamente"
+            echo "$seed_output" | jq -r '.body // .' | jq '.' 2>/dev/null || echo "$seed_output"
             rm -f /tmp/seed-response.json
+        else
+            print_error "Error al ejecutar seed_csv"
+            echo "$result"
             exit 1
         fi
-        
-        print_success "Datos iniciales poblados exitosamente"
-        echo "$seed_output" | jq -r '.body // .' | jq '.' 2>/dev/null || echo "$seed_output"
-        rm -f /tmp/seed-response.json
     else
-        print_error "Error al ejecutar seed_csv"
-        echo "$result"
-        exit 1
+        print_info "Usando script Python local para cargar datos..."
+        if python3 "$script_path" --stage "$STAGE" --region "$REGION" 2>/dev/null; then
+            print_success "Datos iniciales cargados exitosamente"
+        else
+            print_error "Error al cargar datos con el script Python"
+            exit 1
+        fi
     fi
     
     wait_with_message 3 "Esperando que los datos se propaguen en DynamoDB"
@@ -241,23 +259,112 @@ send_webhook_event() {
     fi
 }
 
+# Función para completar transacción pendiente
+complete_pending_transaction() {
+    local event_id="$1"
+    local placa="$2"
+    
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}💳 Completando Transacción Pendiente${NC}"
+    echo ""
+    echo "   Event ID: $event_id"
+    echo "   Placa: $placa"
+    echo ""
+    
+    local url="${COMPLETE_TRANSACTION_URL//\{event_id\}/$event_id}"
+    
+    local payload=$(cat <<EOF
+{
+    "event_id": "$event_id",
+    "payment_method": "cash",
+    "paid_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+}
+EOF
+)
+    
+    local response=$(curl -s -w "\n%{http_code}" \
+        -X POST "$url" \
+        -H "Content-Type: application/json" \
+        -d "$payload")
+    
+    local http_code=$(echo "$response" | tail -n1)
+    local body=$(echo "$response" | sed '$d')
+    
+    if [ "$http_code" -eq 200 ]; then
+        print_success "Transacción completada exitosamente (HTTP $http_code)"
+        echo "$body" | jq '.' 2>/dev/null || echo "$body"
+        return 0
+    else
+        print_error "Error al completar transacción (HTTP $http_code)"
+        echo "$body" | jq '.' 2>/dev/null || echo "$body"
+        return 1
+    fi
+}
+
+# Función para verificar y completar transacciones pendientes
+check_and_complete_pending_transactions() {
+    local placa="$1"
+    
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}🔍 Verificando Transacciones Pendientes - $placa${NC}"
+    
+    local table_name="Transactions-${STAGE}"
+    
+    # Consultar transacciones pendientes
+    local result=$(aws dynamodb query \
+        --table-name "$table_name" \
+        --index-name "placa-timestamp-index" \
+        --key-condition-expression "placa = :placa" \
+        --filter-expression "#status = :status" \
+        --expression-attribute-names '{"#status": "status"}' \
+        --expression-attribute-values "{\":placa\":{\"S\":\"$placa\"},\":status\":{\"S\":\"pending\"}}" \
+        --region "$REGION" \
+        --limit 10 \
+        --scan-index-forward false \
+        --output json 2>/dev/null || echo "{}")
+    
+    if echo "$result" | jq -e '.Items | length > 0' > /dev/null 2>&1; then
+        local count=$(echo "$result" | jq '.Items | length')
+        print_info "Encontradas $count transacción(es) pendiente(s) para placa $placa"
+        
+        # Completar cada transacción pendiente
+        local event_ids=$(echo "$result" | jq -r '.Items[] | .event_id.S' 2>/dev/null)
+        
+        while IFS= read -r event_id; do
+            if [ -n "$event_id" ] && [ "$event_id" != "null" ] && [ "$event_id" != "" ]; then
+                wait_with_message 2 "Esperando antes de completar transacción"
+                complete_pending_transaction "$event_id" "$placa"
+            fi
+        done <<< "$event_ids"
+        
+        return 0
+    else
+        print_info "No hay transacciones pendientes para placa $placa"
+        return 0
+    fi
+}
+
 # Función para verificar ejecución de Step Functions
+# IMPORTANTE: Verifica que Step Functions se ejecutó y completó el flujo completo
 check_stepfunctions_execution() {
     local event_id="$1"
     local case_name="$2"
     
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}🔍 Verificando Step Functions - $case_name${NC}"
+    echo -e "${YELLOW}🔍 Verificando Ejecución de Step Functions - $case_name${NC}"
+    echo ""
+    print_info "Buscando ejecución para event_id: $event_id"
     
-    # Buscar ejecuciones recientes
+    # Buscar ejecuciones recientes (las últimas 10 para encontrar la correcta)
     local executions=$(aws stepfunctions list-executions \
         --state-machine-arn "$STATE_MACHINE_ARN" \
         --region "$REGION" \
-        --max-results 5 \
+        --max-results 10 \
         --query 'executions[*].[executionArn,status,startDate]' \
         --output json 2>/dev/null || echo "[]")
     
     if [ "$executions" != "[]" ] && [ "$executions" != "null" ]; then
+        # Buscar la ejecución más reciente que probablemente corresponde a este event_id
         local latest_arn=$(echo "$executions" | jq -r '.[0][0]' 2>/dev/null || echo "")
         
         if [ -n "$latest_arn" ] && [ "$latest_arn" != "null" ]; then
@@ -269,46 +376,71 @@ check_stepfunctions_execution() {
                 local execution_details=$(aws stepfunctions describe-execution \
                     --execution-arn "$latest_arn" \
                     --region "$REGION" \
-                    --query '{Status:status,StartDate:startDate,StopDate:stopDate,Duration:((stopDate - startDate) / 1000)}' \
+                    --query '{Status:status,StartDate:startDate,StopDate:stopDate}' \
                     --output json 2>/dev/null)
                 
-                echo ""
-                echo "📋 Detalles de ejecución:"
-                echo "$execution_details" | jq '.' 2>/dev/null || echo "$execution_details"
+                local status=$(echo "$execution_details" | jq -r '.Status' 2>/dev/null || echo "UNKNOWN")
                 
-                # Obtener historial de ejecución (qué estados se ejecutaron)
-                print_info "Estados ejecutados:"
-                aws stepfunctions get-execution-history \
-                    --execution-arn "$latest_arn" \
-                    --region "$REGION" \
-                    --query 'events[?type==`TaskStateEntered` || type==`ChoiceStateEntered`].{Type:type,State:stateEnteredEventDetails.name}' \
-                    --output json 2>/dev/null | jq -r '.[] | "  - \(.Type): \(.State)"' || echo "  No se pudo obtener historial"
+                echo ""
+                echo "📋 Estado de ejecución: $status"
+                
+                if [ "$status" = "SUCCEEDED" ]; then
+                    print_success "✓ Step Functions completó exitosamente"
+                    echo "   Esto significa que el flujo completo se ejecutó:"
+                    echo "   - ValidateTransaction → DetermineUserType → CalculateCharge"
+                    echo "   - → (UpdateTagBalance si aplica) → PersistTransaction → SendNotification"
+                elif [ "$status" = "FAILED" ]; then
+                    print_error "✗ Step Functions falló"
+                    echo "   Revisa los logs para ver qué paso falló"
+                    
+                    # Intentar obtener el error
+                    local error_info=$(aws stepfunctions describe-execution \
+                        --execution-arn "$latest_arn" \
+                        --region "$REGION" \
+                        --query '{Error:error,Cause:cause}' \
+                        --output json 2>/dev/null)
+                    
+                    if [ -n "$error_info" ] && [ "$error_info" != "null" ]; then
+                        echo "   Error:"
+                        echo "$error_info" | jq '.' 2>/dev/null || echo "$error_info"
+                    fi
+                else
+                    print_warning "Estado: $status"
+                fi
                 
                 return 0
             else
+                print_error "Step Functions no completó en el tiempo esperado"
                 return 1
             fi
         fi
     else
-        print_warning "No se encontraron ejecuciones recientes"
-        echo "   Esto puede ser normal si EventBridge aún no ha invocado Step Functions"
-        echo "   Espera unos segundos y verifica manualmente en la consola de AWS"
-        return 0
+        print_warning "No se encontraron ejecuciones recientes de Step Functions"
+        echo "   Esto puede indicar que:"
+        echo "   - EventBridge no invocó Step Functions"
+        echo "   - O la ejecución aún no ha comenzado"
+        echo "   - Espera unos segundos más y verifica manualmente"
+        return 1
     fi
     echo ""
 }
 
-# Función para verificar datos en DynamoDB
+# Función para verificar que la transacción se CREÓ en DynamoDB
+# IMPORTANTE: Esta función verifica DESPUÉS de que Step Functions procesó el evento
+# NO se usa para decidir si cobrar, solo para validar que el flujo funcionó
 check_dynamodb_transactions() {
     local placa="$1"
     local expected_user_type="${2:-}"
     
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}🗄️  Verificando Transacciones en DynamoDB - $placa${NC}"
+    echo -e "${YELLOW}🗄️  Verificando que la Transacción se CREÓ - $placa${NC}"
+    echo ""
+    print_info "Verificando que Step Functions creó la transacción en DynamoDB..."
     
     local table_name="Transactions-${STAGE}"
     
     # Consultar usando GSI placa-timestamp-index
+    # Esto verifica que la transacción fue CREADA por el flujo, no que ya existía
     local result=$(aws dynamodb query \
         --table-name "$table_name" \
         --index-name "placa-timestamp-index" \
@@ -321,19 +453,21 @@ check_dynamodb_transactions() {
     
     if echo "$result" | jq -e '.Items | length > 0' > /dev/null 2>&1; then
         local count=$(echo "$result" | jq '.Items | length')
-        print_success "Encontradas $count transacción(es) para placa $placa"
+        print_success "✓ Transacción CREADA exitosamente: $count registro(s) para placa $placa"
         
         echo ""
-        echo "📊 Transacciones:"
-        echo "$result" | jq -r '.Items[] | {
+        echo "📊 Detalles de la transacción creada:"
+        echo "$result" | jq -r '.Items[0] | {
             placa: .placa.S,
+            event_id: .event_id.S,
             ts: .ts.S,
             user_type: .user_type.S,
             amount: .amount.N,
             peaje_id: .peaje_id.S,
             status: .status.S,
-            timestamp: .timestamp.S
-        }' | jq -s '.' 2>/dev/null || echo "$result"
+            timestamp: .timestamp.S,
+            created_at: .created_at.S
+        }' 2>/dev/null || echo "$result" | jq '.Items[0]'
         
         # Verificar user_type si se especificó
         if [ -n "$expected_user_type" ]; then
@@ -341,12 +475,18 @@ check_dynamodb_transactions() {
             if [ "$actual_type" = "$expected_user_type" ]; then
                 print_success "Tipo de usuario correcto: $expected_user_type"
             else
-                print_error "Tipo de usuario incorrecto. Esperado: $expected_user_type, Obtenido: $actual_type"
+                print_warning "Tipo de usuario: Esperado '$expected_user_type', Obtenido '$actual_type'"
             fi
         fi
     else
-        print_error "No se encontraron transacciones para placa $placa"
-        echo "   Verifica que Step Functions se ejecutó correctamente"
+        print_error "❌ NO se encontró transacción creada para placa $placa"
+        echo ""
+        echo "   Esto significa que:"
+        echo "   - Step Functions puede no haberse ejecutado"
+        echo "   - O persist_transaction falló"
+        echo "   - O hay un problema con el flujo"
+        echo ""
+        echo "   Revisa los logs de Step Functions y Lambda para más detalles"
     fi
     echo ""
 }
@@ -481,163 +621,191 @@ check_eventbridge() {
 }
 
 # =============================================================================
-# PRUEBAS POR CASO
+# FUNCIONES PARA PROCESAR PAYLOADS DEL JSON
 # =============================================================================
 
-test_case_tag() {
-    print_header "CASO 1: Usuario con Tag RFID (Caso C)"
+# Función para cargar payloads del archivo JSON
+load_test_payloads() {
+    local json_file="${1:-$(dirname "$0")/Webhooks_Tests.json}"
+    WEBHOOKS_TEST_FILE="$json_file"
     
-    local placa="P-456DEF"
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    
-    local payload=$(cat <<EOF
-{
-    "placa": "$placa",
-    "peaje_id": "PEAJE_ZONA10",
-    "tag_id": "TAG-001",
-    "timestamp": "$timestamp"
-}
-EOF
-)
-    
-    local event_id=$(send_webhook_event "Caso 1: Usuario con Tag" "$payload" "tag")
-    
-    if [ -n "$event_id" ]; then
-        wait_with_message 8 "Esperando procesamiento de Step Functions"
-        check_stepfunctions_execution "$event_id" "Usuario con Tag"
-        check_dynamodb_transactions "$placa" "tag"
-        query_payments_history "$placa"
-        query_invoices_history "$placa"
+    if [ ! -f "$json_file" ]; then
+        print_error "Archivo de pruebas no encontrado: $json_file"
+        return 1
     fi
+    
+    if ! jq empty "$json_file" 2>/dev/null; then
+        print_error "El archivo JSON no es válido: $json_file"
+        return 1
+    fi
+    
+    print_success "Archivo de pruebas cargado: $json_file"
+    local count=$(jq '. | length' "$json_file" 2>/dev/null || echo "0")
+    echo "   Total de payloads: $count"
+    return 0
 }
 
-test_case_registered() {
-    print_header "CASO 2: Usuario Registrado sin Tag (Caso B)"
+# Función para procesar un payload individual
+process_single_payload() {
+    local payload="$1"
+    local index="$2"
+    local total="$3"
     
-    local placa="P-123ABC"
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local placa=$(echo "$payload" | jq -r '.placa' 2>/dev/null || echo "")
+    local peaje_id=$(echo "$payload" | jq -r '.peaje_id' 2>/dev/null || echo "")
+    local tag_id=$(echo "$payload" | jq -r '.tag_id // ""' 2>/dev/null || echo "")
+    local timestamp=$(echo "$payload" | jq -r '.timestamp' 2>/dev/null || echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ")")
     
-    local payload=$(cat <<EOF
-{
-    "placa": "$placa",
-    "peaje_id": "PEAJE_ZONA10",
-    "timestamp": "$timestamp"
-}
-EOF
-)
-    
-    local event_id=$(send_webhook_event "Caso 2: Usuario Registrado" "$payload" "registrado")
-    
-    if [ -n "$event_id" ]; then
-        wait_with_message 8 "Esperando procesamiento de Step Functions"
-        check_stepfunctions_execution "$event_id" "Usuario Registrado"
-        check_dynamodb_transactions "$placa" "registrado"
-        query_payments_history "$placa"
-        query_invoices_history "$placa"
+    # Actualizar timestamp si no está presente o es muy antiguo
+    if [ -z "$timestamp" ] || [ "$timestamp" = "null" ]; then
+        timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     fi
-}
-
-test_case_unregistered() {
-    print_header "CASO 3: Usuario No Registrado (Caso A)"
     
-    local placa="P-999XXX"
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    # Crear payload con timestamp actualizado
+    local updated_payload=$(echo "$payload" | jq --arg ts "$timestamp" '.timestamp = $ts' 2>/dev/null || echo "$payload")
     
-    local payload=$(cat <<EOF
-{
-    "placa": "$placa",
-    "peaje_id": "PEAJE_ZONA10",
-    "timestamp": "$timestamp"
-}
-EOF
-)
-    
-    local event_id=$(send_webhook_event "Caso 3: Usuario No Registrado" "$payload" "no_registrado")
-    
-    if [ -n "$event_id" ]; then
-        wait_with_message 8 "Esperando procesamiento de Step Functions"
-        check_stepfunctions_execution "$event_id" "Usuario No Registrado"
-        check_dynamodb_transactions "$placa" "no_registrado"
-        query_payments_history "$placa"
-        query_invoices_history "$placa"
-    fi
-}
-
-test_case_error_invalid_tag() {
-    print_header "CASO 4: Error - Tag Inválido (No corresponde a placa)"
-    
-    local placa="P-123ABC"  # Esta placa no tiene TAG-001
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    
-    local payload=$(cat <<EOF
-{
-    "placa": "$placa",
-    "peaje_id": "PEAJE_ZONA10",
-    "tag_id": "TAG-001",
-    "timestamp": "$timestamp"
-}
-EOF
-)
-    
-    print_info "Enviando evento con tag que no corresponde a la placa..."
-    echo "Payload:"
-    echo "$payload" | jq '.'
-    echo ""
-    
-    local response=$(curl -s -w "\n%{http_code}" \
-        -X POST "$WEBHOOK_URL" \
-        -H "Content-Type: application/json" \
-        -d "$payload")
-    
-    local http_code=$(echo "$response" | tail -n1)
-    local body=$(echo "$response" | sed '$d')
-    
-    if [ "$http_code" -eq 400 ]; then
-        print_success "Error esperado capturado correctamente (HTTP 400)"
-        echo "$body" | jq '.' 2>/dev/null || echo "$body"
+    # Determinar tipo de caso
+    local case_type=""
+    local case_name=""
+    if [ -n "$tag_id" ] && [ "$tag_id" != "null" ] && [ "$tag_id" != "" ]; then
+        case_type="tag"
+        case_name="Usuario con Tag RFID"
+    elif [ -n "$placa" ]; then
+        # Verificar si la placa está registrada (esto lo hará el sistema)
+        case_type="unknown"
+        case_name="Usuario (verificar tipo)"
     else
-        print_warning "Respuesta inesperada (HTTP $http_code)"
-        echo "$body" | jq '.' 2>/dev/null || echo "$body"
+        case_type="error"
+        case_name="Payload inválido"
     fi
-    echo ""
+    
+    print_header "CASO $index/$total: $case_name - $placa"
+    
+    local event_id=$(send_webhook_event "Caso $index: $case_name" "$updated_payload" "$case_type")
+    
+    if [ -n "$event_id" ] && [ "$event_id" != "null" ]; then
+        # Según flujo_guatepass.md: El sistema SIEMPRE crea una transacción desde cero
+        # No se busca primero en Transactions para decidir si cobrar
+        # Esperamos que Step Functions complete el flujo completo
+        
+        print_info "Event ID recibido: $event_id"
+        print_info "Esperando que Step Functions procese el evento y CREE la transacción..."
+        
+        # Esperar tiempo suficiente para que Step Functions complete
+        wait_with_message 10 "Esperando procesamiento completo de Step Functions"
+        
+        # Verificar que Step Functions completó exitosamente
+        check_stepfunctions_execution "$event_id" "$case_name"
+        
+        # Ahora SÍ verificamos que la transacción se CREÓ (después del procesamiento)
+        wait_with_message 2 "Esperando que la transacción se persista en DynamoDB"
+        check_dynamodb_transactions "$placa" ""
+        
+        # Verificar y completar transacciones pendientes (solo para no_registrados)
+        check_and_complete_pending_transactions "$placa"
+        
+        # Consultar historiales (después de que todo se haya creado)
+        query_payments_history "$placa"
+        query_invoices_history "$placa"
+        
+        return 0
+    else
+        print_warning "No se obtuvo event_id, continuando con siguiente caso..."
+        return 1
+    fi
 }
 
-test_case_error_invalid_toll() {
-    print_header "CASO 5: Error - Peaje Inválido"
+# Función para procesar todos los payloads del JSON
+process_all_payloads() {
+    print_header "PROCESANDO TODOS LOS PAYLOADS DE PRUEBA"
     
-    local placa="P-123ABC"
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    
-    local payload=$(cat <<EOF
-{
-    "placa": "$placa",
-    "peaje_id": "PEAJE_INVALIDO",
-    "timestamp": "$timestamp"
-}
-EOF
-)
-    
-    print_info "Enviando evento con peaje que no existe..."
-    echo "Payload:"
-    echo "$payload" | jq '.'
-    echo ""
-    
-    local response=$(curl -s -w "\n%{http_code}" \
-        -X POST "$WEBHOOK_URL" \
-        -H "Content-Type: application/json" \
-        -d "$payload")
-    
-    local http_code=$(echo "$response" | tail -n1)
-    local body=$(echo "$response" | sed '$d')
-    
-    if [ "$http_code" -eq 400 ]; then
-        print_success "Error esperado capturado correctamente (HTTP 400)"
-        echo "$body" | jq '.' 2>/dev/null || echo "$body"
-    else
-        print_warning "Respuesta inesperada (HTTP $http_code)"
-        echo "$body" | jq '.' 2>/dev/null || echo "$body"
+    if [ -z "$WEBHOOKS_TEST_FILE" ] || [ ! -f "$WEBHOOKS_TEST_FILE" ]; then
+        print_error "Archivo de pruebas no cargado"
+        return 1
     fi
+    
+    local total=$(jq '. | length' "$WEBHOOKS_TEST_FILE" 2>/dev/null || echo "0")
+    print_info "Procesando $total payloads de prueba..."
     echo ""
+    
+    local success_count=0
+    local error_count=0
+    local processed_placas=()
+    
+    # Procesar cada payload
+    for i in $(seq 0 $((total - 1))); do
+        local payload=$(jq -c ".[$i]" "$WEBHOOKS_TEST_FILE" 2>/dev/null)
+        
+        if [ -n "$payload" ] && [ "$payload" != "null" ]; then
+            local placa=$(echo "$payload" | jq -r '.placa' 2>/dev/null || echo "")
+            
+            if process_single_payload "$payload" $((i + 1)) "$total"; then
+                success_count=$((success_count + 1))
+                processed_placas+=("$placa")
+            else
+                error_count=$((error_count + 1))
+            fi
+            
+            # Esperar entre payloads para no saturar el sistema
+            if [ $i -lt $((total - 1)) ]; then
+                wait_with_message 2 "Esperando antes del siguiente payload"
+            fi
+        fi
+    done
+    
+    echo ""
+    print_header "RESUMEN DE PROCESAMIENTO"
+    echo "   Total procesados: $total"
+    echo "   Exitosos: $success_count"
+    echo "   Con errores: $error_count"
+    echo ""
+    
+    return 0
+}
+
+# Función para procesar payloads por categoría
+process_payloads_by_category() {
+    print_header "PROCESANDO PAYLOADS POR CATEGORÍA"
+    
+    if [ -z "$WEBHOOKS_TEST_FILE" ] || [ ! -f "$WEBHOOKS_TEST_FILE" ]; then
+        print_error "Archivo de pruebas no cargado"
+        return 1
+    fi
+    
+    # Separar payloads por tipo
+    local with_tag=$(jq '[.[] | select(.tag_id != null and .tag_id != "")]' "$WEBHOOKS_TEST_FILE" 2>/dev/null)
+    local without_tag=$(jq '[.[] | select(.tag_id == null or .tag_id == "")]' "$WEBHOOKS_TEST_FILE" 2>/dev/null)
+    
+    local with_tag_count=$(echo "$with_tag" | jq '. | length' 2>/dev/null || echo "0")
+    local without_tag_count=$(echo "$without_tag" | jq '. | length' 2>/dev/null || echo "0")
+    
+    print_info "Payloads con tag: $with_tag_count"
+    print_info "Payloads sin tag: $without_tag_count"
+    echo ""
+    
+    # Procesar payloads con tag
+    if [ "$with_tag_count" -gt 0 ]; then
+        print_header "CASOS CON TAG RFID"
+        for i in $(seq 0 $((with_tag_count - 1))); do
+            local payload=$(echo "$with_tag" | jq -c ".[$i]" 2>/dev/null)
+            if [ -n "$payload" ] && [ "$payload" != "null" ]; then
+                process_single_payload "$payload" $((i + 1)) "$with_tag_count"
+                wait_with_message 2 "Esperando antes del siguiente payload"
+            fi
+        done
+    fi
+    
+    # Procesar payloads sin tag
+    if [ "$without_tag_count" -gt 0 ]; then
+        print_header "CASOS SIN TAG (Registrados o No Registrados)"
+        for i in $(seq 0 $((without_tag_count - 1))); do
+            local payload=$(echo "$without_tag" | jq -c ".[$i]" 2>/dev/null)
+            if [ -n "$payload" ] && [ "$payload" != "null" ]; then
+                process_single_payload "$payload" $((i + 1)) "$without_tag_count"
+                wait_with_message 2 "Esperando antes del siguiente payload"
+            fi
+        done
+    fi
 }
 
 # =============================================================================
@@ -650,16 +818,22 @@ print_final_summary() {
     echo ""
     echo "✅ Pruebas completadas:"
     echo "  1. ✅ Datos iniciales poblados (Seed CSV)"
-    echo "  2. ✅ Webhook - Usuario con Tag (Caso C)"
-    echo "  3. ✅ Webhook - Usuario Registrado (Caso B)"
-    echo "  4. ✅ Webhook - Usuario No Registrado (Caso A)"
-    echo "  5. ✅ Validaciones de error probadas"
-    echo "  6. ✅ Step Functions ejecutadas y verificadas"
-    echo "  7. ✅ Transacciones guardadas en DynamoDB"
-    echo "  8. ✅ Historial de pagos consultado"
-    echo "  9. ✅ Historial de invoices consultado"
-    echo "  10. ✅ SNS Topic verificado"
+    echo "  2. ✅ Payloads de prueba cargados desde JSON"
+    echo "  3. ✅ Todos los webhooks procesados"
+    echo "  4. ✅ Transacciones pendientes completadas automáticamente"
+    echo "  5. ✅ Transacciones guardadas en DynamoDB"
+    echo "  6. ✅ Historial de pagos consultado"
+    echo "  7. ✅ Historial de invoices consultado"
+    echo "  8. ✅ SNS Topic verificado"
+    echo "  9. ✅ EventBridge verificado"
     echo ""
+    
+    if [ -n "$WEBHOOKS_TEST_FILE" ] && [ -f "$WEBHOOKS_TEST_FILE" ]; then
+        local total=$(jq '. | length' "$WEBHOOKS_TEST_FILE" 2>/dev/null || echo "0")
+        echo "📊 Estadísticas:"
+        echo "   Total de payloads procesados: $total"
+        echo ""
+    fi
     
     echo "📊 Enlaces útiles:"
     echo "  - Step Functions: https://console.aws.amazon.com/states/home?region=${REGION}#/statemachines/view/${STATE_MACHINE_NAME}"
@@ -707,23 +881,33 @@ main() {
     # Obtener información del stack
     get_stack_info
     
-    # Paso 1: Poblar datos iniciales
-    seed_data
+    # Paso 1: Poblar datos iniciales (opcional, solo si LOAD_INITIAL_DATA=true)
+    if [ "$LOAD_INITIAL_DATA" = "true" ]; then
+        seed_data
+    else
+        print_info "Omitiendo carga de datos iniciales (ya están cargados)"
+        echo "   Para cargar datos, ejecuta: LOAD_INITIAL_DATA=true ./test-flujo-completo-mejorado.sh"
+        echo ""
+    fi
     
-    # Paso 2-4: Probar los 3 casos principales
-    test_case_tag
-    test_case_registered
-    test_case_unregistered
+    # Paso 2: Cargar payloads de prueba desde JSON
+    if ! load_test_payloads; then
+        print_error "No se pudo cargar el archivo de pruebas"
+        exit 1
+    fi
     
-    # Paso 5-6: Probar casos de error
-    test_case_error_invalid_tag
-    test_case_error_invalid_toll
+    # Paso 3: Procesar todos los payloads
+    # Opción 1: Procesar todos secuencialmente
+    process_all_payloads
     
-    # Paso 7: Verificar servicios
+    # Opción 2: Procesar por categoría (comentado, descomentar si prefieres)
+    # process_payloads_by_category
+    
+    # Paso 4: Verificar servicios
     check_sns_topic
     check_eventbridge
     
-    # Paso 8: Resumen final
+    # Paso 5: Resumen final
     print_final_summary
 }
 

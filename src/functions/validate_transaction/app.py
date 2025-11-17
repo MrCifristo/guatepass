@@ -42,36 +42,37 @@ def lambda_handler(event, context):
         toll_info = toll_response['Item']
         
         # Determinar tipo de usuario
+        # Según el documento: UsersVehicles es OBLIGATORIO para determinar el tipo de usuario
         user_type = 'no_registrado'  # Por defecto
         user_info = None
         tag_info = None
         
-        # Verificar si tiene tag
+        # SIEMPRE consultar UsersVehicles (obligatorio según flujo_guatepass.md)
+        users_table = dynamodb.Table(USERS_TABLE)
+        user_response = users_table.get_item(Key={'placa': placa})
+        
+        if 'Item' in user_response:
+            user_info = user_response['Item']
+            # Si tiene tipo_usuario en el registro, usarlo como base
+            registered_type = user_info.get('tipo_usuario', 'registrado')
+            if registered_type == 'no_registrado':
+                user_type = 'no_registrado'
+            else:
+                user_type = 'registrado'
+        
+        # Verificar si tiene tag (esto puede cambiar el tipo a 'tag')
         if tag_id:
             tags_table = dynamodb.Table(TAGS_TABLE)
             tag_response = tags_table.get_item(Key={'tag_id': tag_id})
             
             if 'Item' in tag_response:
                 tag_info = tag_response['Item']
+                # Validar que el tag esté activo y corresponda a la placa
                 if tag_info.get('status') == 'active' and tag_info.get('placa') == placa:
+                    # Si el tag es válido, el usuario es tipo 'tag' (sobrescribe el tipo anterior)
                     user_type = 'tag'
                 else:
                     raise ValueError(f'Tag {tag_id} no está activo o no corresponde a la placa {placa}')
-        
-        # Si no tiene tag, verificar si está registrado
-        if user_type == 'no_registrado':
-            users_table = dynamodb.Table(USERS_TABLE)
-            user_response = users_table.get_item(Key={'placa': placa})
-            
-            if 'Item' in user_response:
-                user_info = user_response['Item']
-                # Usar tipo_usuario del registro si existe, sino asumir registrado
-                user_type = user_info.get('tipo_usuario', 'registrado')
-                # Si el tipo_usuario es "no_registrado", mantenerlo así
-                if user_info.get('tipo_usuario') == 'no_registrado':
-                    user_type = 'no_registrado'
-                else:
-                    user_type = 'registrado'
         
         # Preparar resultado para Step Functions
         result = {

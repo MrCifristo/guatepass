@@ -1,0 +1,11 @@
+peaje_id,nombre,carretera,km,monto_base,monto_no_registrado,monto_registrado,monto_tag
+PEAJE_ZONA10,"Carretera a El Salvador - Zona 10",CA-1,15,25.00,31.25,25.00,21.25
+PEAJE_CARRETERA_EL_SALVADOR,"Carretera a El Salvador - Km 20",CA-1,20,30.00,37.50,30.00,25.50
+PEAJE_PALIN,"Autopista Palín-Escuintla",CA-9,35,40.00,50.00,40.00,34.00
+PEAJE_CHIMAL,"Ruta a Chimaltenango",CA-1 Occidente,45,45.00,56.25,45.00,38.25
+PEAJE_ATLANTICO,"Carretera al Atlántico",CA-9 Norte,25,28.00,35.00,28.00,23.80
+PEAJE_MIXCO,"Anillo Regional Mixco",Anillo Regional,12,18.00,22.50,18.00,15.30
+PEAJE_SAN_LUCAS,"San Lucas Sacatepéquez",CA-1 Occidente,22,26.00,32.50,26.00,22.10
+PEAJE_PUERTO_QUETZAL,"Ruta a Puerto Quetzal",CA-9 Sur,70,60.00,75.00,60.00,51.00
+PEAJE_COSTA_SUR,"Ruta Costa Sur",CA-2,80,55.00,68.75,55.00,46.75
+PEAJE_ANTIGUA,"Ruta a Antigua Guatemala",RN-10,30,32.00,40.00,32.00,27.20

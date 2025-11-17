@@ -46,7 +46,11 @@ def lambda_handler(event, context):
             create_invoice = True
         
         # Crear registro de transacción
-        ts = timestamp if timestamp else datetime.utcnow().isoformat() + 'Z'
+        # Asegurar que timestamp tenga un valor válido (requerido para GSI placa-timestamp-index)
+        if not timestamp:
+            timestamp = datetime.utcnow().isoformat() + 'Z'
+        
+        ts = timestamp  # Usar el mismo timestamp para ts (RANGE key) y timestamp (GSI)
         
         transaction_item = {
             'placa': placa,  # HASH key
@@ -59,7 +63,7 @@ def lambda_handler(event, context):
             'subtotal': to_decimal(charge.get('subtotal', 0)),
             'tax': to_decimal(charge.get('tax', 0)),
             'currency': charge.get('currency', 'GTQ'),
-            'timestamp': timestamp,  # Mantener también timestamp para el GSI
+            'timestamp': timestamp,  # CRÍTICO: Debe tener valor para que funcione el GSI placa-timestamp-index
             'status': transaction_status,
             'requires_payment': (user_type == 'no_registrado'),
             'created_at': datetime.utcnow().isoformat() + 'Z'
