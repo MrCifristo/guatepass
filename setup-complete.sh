@@ -48,6 +48,11 @@ if ! check_command "jq"; then
     MISSING=1
 fi
 
+if ! check_command "python3"; then
+    echo "  Instala Python 3 desde python.org o con: brew install python3 (macOS)"
+    MISSING=1
+fi
+
 if [ $MISSING -eq 1 ]; then
     echo ""
     echo -e "${RED}❌ Faltan prerrequisitos. Por favor instálalos primero.${NC}"
@@ -184,26 +189,50 @@ echo ""
 echo -e "${BLUE}=== Paso 7: Poblando Datos Iniciales ===${NC}"
 echo ""
 
-FUNCTION_NAME="${STACK_NAME//-stack/-seed-csv-dev}"
+# Obtener el stage del stack
+STAGE=$(grep "parameter_overrides" samconfig.toml | sed -n 's/.*StageName="\([^"]*\)".*/\1/p' | head -1)
+if [ -z "$STAGE" ]; then
+    STAGE="dev"
+fi
 
-echo "Invocando función: $FUNCTION_NAME"
+echo "Cargando datos CSV a DynamoDB (stage: $STAGE)..."
 echo ""
 
-if aws lambda invoke \
-    --function-name $FUNCTION_NAME \
-    --payload '{}' \
-    response.json 2>/dev/null; then
-    
-    echo -e "${GREEN}✅ Datos iniciales poblados${NC}"
+# Verificar que el script existe
+if [ ! -f "../scripts/load_csv_data.py" ]; then
+    echo -e "${YELLOW}⚠️  Script load_csv_data.py no encontrado${NC}"
+    echo "Puedes cargar los datos manualmente con:"
+    echo "  python3 scripts/load_csv_data.py --stage $STAGE"
     echo ""
-    echo "Resultado:"
-    cat response.json | jq '.' 2>/dev/null || cat response.json
-    echo ""
-    rm -f response.json
 else
-    echo -e "${YELLOW}⚠️  No se pudo invocar la función automáticamente${NC}"
-    echo "Puedes hacerlo manualmente con:"
-    echo "  aws lambda invoke --function-name $FUNCTION_NAME --payload '{}' response.json"
+    # Verificar que boto3 está instalado
+    if ! python3 -c "import boto3" 2>/dev/null; then
+        echo -e "${YELLOW}⚠️  boto3 no está instalado. Instalando...${NC}"
+        if pip3 install boto3 --quiet 2>/dev/null; then
+            echo -e "${GREEN}✅ boto3 instalado${NC}"
+        else
+            echo -e "${RED}❌ Error al instalar boto3${NC}"
+            echo "Instala manualmente con: pip3 install boto3"
+            echo ""
+            echo "Luego ejecuta:"
+            echo "  python3 scripts/load_csv_data.py --stage $STAGE"
+            echo ""
+        fi
+    fi
+    
+    # Ejecutar el script de carga
+    cd ..
+    if python3 scripts/load_csv_data.py --stage "$STAGE" --region "$REGION" 2>/dev/null; then
+        echo ""
+        echo -e "${GREEN}✅ Datos iniciales cargados exitosamente${NC}"
+    else
+        echo ""
+        echo -e "${YELLOW}⚠️  Error al cargar datos automáticamente${NC}"
+        echo "Puedes cargar los datos manualmente con:"
+        echo "  python3 scripts/load_csv_data.py --stage $STAGE"
+        echo ""
+    fi
+    cd infrastructure
 fi
 
 echo ""

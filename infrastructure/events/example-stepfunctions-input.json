@@ -1,0 +1,9 @@
+{
+  "event_id": "test-event-id-12345",
+  "placa": "P-123ABC",
+  "peaje_id": "PEAJE_ZONA10",
+  "tag_id": "TAG-001",
+  "timestamp": "2025-01-27T10:00:00Z",
+  "ingested_at": "2025-01-27T10:00:01Z"
+}
+

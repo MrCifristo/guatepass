@@ -31,6 +31,13 @@ def validate_toll(peaje_id):
 
 
 def validate_tag(tag_id, placa):
+    """
+    Valida que el tag existe, está activo y corresponde a la placa.
+    
+    NOTA: Esta es una validación temprana (fail-fast) para mejorar la experiencia
+    del usuario. La validación completa también se realiza en ValidateTransactionFunction
+    dentro del flujo de Step Functions para garantizar consistencia.
+    """
     tags_table = dynamodb.Table(TAGS_TABLE)
     response = tags_table.get_item(Key={'tag_id': tag_id})
     tag = response.get('Item')
@@ -67,6 +74,9 @@ def lambda_handler(event, context):
                 'message': f'Peaje {body["peaje_id"]} no existe'
             })
 
+        # Validación temprana de tag (fail-fast)
+        # Esta validación se repite en ValidateTransactionFunction para garantizar consistencia
+        # pero permite rechazar eventos inválidos antes de entrar al flujo de Step Functions
         tag_id = body.get('tag_id')
         if tag_id:
             tag_error = validate_tag(tag_id, body['placa'])
