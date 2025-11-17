@@ -571,6 +571,52 @@ Resources:
             Method: post
     Metadata:
       SamResourceId: CompletePendingTransactionFunction
+  ManageTagsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-manage-tags-${StageName}
+      CodeUri: ManageTagsFunction
+      Handler: app.lambda_handler
+      Description: Gestiona operaciones CRUD para tags asociados a placas
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: Tags
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: UsersVehicles
+      Events:
+        ApiCreateTagEvent:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RestApi
+            Path: /users/{placa}/tag
+            Method: post
+        ApiGetTagEvent:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RestApi
+            Path: /users/{placa}/tag
+            Method: get
+        ApiUpdateTagEvent:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RestApi
+            Path: /users/{placa}/tag
+            Method: put
+        ApiDeleteTagEvent:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RestApi
+            Path: /users/{placa}/tag
+            Method: delete
+    Metadata:
+      SamResourceId: ManageTagsFunction
   EventBridgeStepFunctionsRole:
     Type: AWS::IAM::Role
     Properties:
@@ -659,6 +705,22 @@ Outputs:
     Description: Endpoint para completar transacciones pendientes
     Value:
       Fn::Sub: https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/transactions/{event_id}/complete
+  CreateTagEndpoint:
+    Description: Endpoint para crear un tag (POST)
+    Value:
+      Fn::Sub: https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/users/{placa}/tag
+  GetTagEndpoint:
+    Description: Endpoint para obtener un tag por placa (GET)
+    Value:
+      Fn::Sub: https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/users/{placa}/tag
+  UpdateTagEndpoint:
+    Description: Endpoint para actualizar un tag (PUT)
+    Value:
+      Fn::Sub: https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/users/{placa}/tag
+  DeleteTagEndpoint:
+    Description: Endpoint para desactivar un tag (DELETE)
+    Value:
+      Fn::Sub: https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/users/{placa}/tag
   EventBusName:
     Description: Nombre del EventBridge Bus
     Value:
