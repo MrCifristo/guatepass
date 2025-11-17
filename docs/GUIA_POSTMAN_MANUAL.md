@@ -87,7 +87,7 @@ Ahora puedes usar `{{base_url}}` en tus URLs y Postman lo reemplazará automáti
 - `tag_id`: ID del tag RFID (debe corresponder a la placa)
 - `timestamp`: Fecha/hora del evento en formato ISO 8601
 
-**Datos válidos de ejemplo (del Webhooks_Tests.json):**
+**Datos válidos de ejemplo (del `tests/webhook_test.json`):**
 ```json
 {
     "placa": "P-438EDF",
@@ -206,7 +206,7 @@ Haz clic en **"Send"**. Deberías recibir el mismo tipo de respuesta que en el p
 
 **Nota:** Usa una placa que **NO exista** en tu base de datos. Esto creará una transacción con estado `pending` que necesitará ser completada manualmente.
 
-**Otras placas no registradas (del Webhooks_Tests.json):**
+**Otras placas no registradas (del `tests/webhook_test.json`):**
 - `P-901XXX`
 - `P-902XXX`
 - `P-903XXX`
@@ -473,7 +473,7 @@ Para mantener tus requests organizadas:
 - `PEAJE_COSTA_SUR`
 - `PEAJE_ANTIGUA`
 
-### Placas con Tags Válidas (del Webhooks_Tests.json)
+### Placas con Tags Válidas (del `tests/webhook_test.json`)
 - `P-778NDR` → `TAG-109`
 - `P-438EDF` → `TAG-072`
 - `P-293KTT` → `TAG-097`
@@ -530,4 +530,3 @@ Para mantener tus requests organizadas:
 - [ ] POST /webhook/toll - Error: Tag incorrecto
 
 ¡Listo! Ahora puedes probar todos los endpoints manualmente paso a paso.
-

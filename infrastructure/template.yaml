@@ -469,7 +469,7 @@ Resources:
       Description: Envía notificación del resultado de la transacción vía SNS
       Policies:
         - SNSPublishMessagePolicy:
-            TopicName: !Ref NotificationsTopic
+            TopicName: !GetAtt NotificationsTopic.TopicName
 
   UpdateTagBalanceFunction:
     Type: AWS::Serverless::Function
@@ -561,6 +561,229 @@ Resources:
                   - logs:DescribeResourcePolicies
                   - logs:DescribeLogGroups
                 Resource: "*"
+
+  MonitoringDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "${ProjectName}-dashboard-${StageName}"
+      DashboardBody: !Sub
+        - |
+          {
+            "periodOverride": "inherit",
+            "widgets": [
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 0,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Lambda - Invocaciones",
+                  "metrics": [
+                    [ "AWS/Lambda", "Invocations", "FunctionName", "${ProjectName}-ingest-webhook-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-validate-transaction-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-calculate-charge-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-update-tag-balance-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-persist-transaction-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-send-notification-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-read-history-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-complete-pending-transaction-${StageName}", { "stat": "Sum" } ]
+                  ],
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "stat": "Sum",
+                  "period": 300,
+                  "stacked": false
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 0,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Lambda - Errores",
+                  "metrics": [
+                    [ "AWS/Lambda", "Errors", "FunctionName", "${ProjectName}-ingest-webhook-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-validate-transaction-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-calculate-charge-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-update-tag-balance-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-persist-transaction-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-send-notification-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-read-history-${StageName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${ProjectName}-complete-pending-transaction-${StageName}", { "stat": "Sum" } ]
+                  ],
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "period": 300,
+                  "stacked": false
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 6,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Lambda - Duración Promedio (ms)",
+                  "metrics": [
+                    [ "AWS/Lambda", "Duration", "FunctionName", "${ProjectName}-ingest-webhook-${StageName}", { "stat": "Average" } ],
+                    [ ".", ".", ".", "${ProjectName}-validate-transaction-${StageName}", { "stat": "Average" } ],
+                    [ ".", ".", ".", "${ProjectName}-calculate-charge-${StageName}", { "stat": "Average" } ],
+                    [ ".", ".", ".", "${ProjectName}-persist-transaction-${StageName}", { "stat": "Average" } ],
+                    [ ".", ".", ".", "${ProjectName}-send-notification-${StageName}", { "stat": "Average" } ]
+                  ],
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "period": 300,
+                  "stacked": false
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 6,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "API Gateway - Solicitudes y Errores",
+                  "metrics": [
+                    [ "AWS/ApiGateway", "Count", "ApiId", "${RestApiId}", "Stage", "${StageName}", { "stat": "Sum", "label": "Requests" } ],
+                    [ ".", "4XXError", ".", ".", ".", ".", { "stat": "Sum", "label": "4XX" } ],
+                    [ ".", "5XXError", ".", ".", ".", ".", { "stat": "Sum", "label": "5XX" } ]
+                  ],
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "stacked": false,
+                  "period": 300
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 12,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "API Gateway - Latencia Promedio",
+                  "metrics": [
+                    [ "AWS/ApiGateway", "Latency", "ApiId", "${RestApiId}", "Stage", "${StageName}", { "stat": "Average" } ]
+                  ],
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "period": 300
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 12,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "DynamoDB - Consumo de Lecturas",
+                  "metrics": [
+                    [ "AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "${TransactionsTableName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${InvoicesTableName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${UsersTableName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${TagsTableName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${TollsCatalogTableName}", { "stat": "Sum" } ]
+                  ],
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "period": 300
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 18,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "DynamoDB - Consumo de Escrituras",
+                  "metrics": [
+                    [ "AWS/DynamoDB", "ConsumedWriteCapacityUnits", "TableName", "${TransactionsTableName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${InvoicesTableName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${UsersTableName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${TagsTableName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${TollsCatalogTableName}", { "stat": "Sum" } ]
+                  ],
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "period": 300
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 18,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "DynamoDB - ThrottledRequests",
+                  "metrics": [
+                    [ "AWS/DynamoDB", "ThrottledRequests", "TableName", "${TransactionsTableName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${InvoicesTableName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${UsersTableName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${TagsTableName}", { "stat": "Sum" } ],
+                    [ ".", ".", ".", "${TollsCatalogTableName}", { "stat": "Sum" } ]
+                  ],
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "period": 300
+                }
+              },
+              {
+                "type": "metric",
+                "x": 0,
+                "y": 24,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "Step Functions - Ejecuciones",
+                  "metrics": [
+                    [ "AWS/States", "ExecutionsStarted", "StateMachineArn", "${StateMachineArn}", { "stat": "Sum", "label": "Started" } ],
+                    [ ".", "ExecutionsSucceeded", ".", ".", { "stat": "Sum", "label": "Succeeded" } ],
+                    [ ".", "ExecutionsFailed", ".", ".", { "stat": "Sum", "label": "Failed" } ],
+                    [ ".", "ExecutionThrottled", ".", ".", { "stat": "Sum", "label": "Throttled" } ]
+                  ],
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "period": 300
+                }
+              },
+              {
+                "type": "metric",
+                "x": 12,
+                "y": 24,
+                "width": 12,
+                "height": 6,
+                "properties": {
+                  "title": "SNS - Mensajes Publicados",
+                  "metrics": [
+                    [ "AWS/SNS", "NumberOfMessagesPublished", "TopicName", "${TopicName}", { "stat": "Sum" } ],
+                    [ ".", "NumberOfNotificationsFailed", ".", ".", { "stat": "Sum" } ]
+                  ],
+                  "region": "${AWS::Region}",
+                  "view": "timeSeries",
+                  "period": 300
+                }
+              }
+            ]
+          }
+        - {
+            "RestApiId": !Ref RestApi,
+            "StateMachineArn": !GetAtt ProcessTollStateMachine.Arn,
+            "TopicName": !GetAtt NotificationsTopic.TopicName,
+            "TransactionsTableName": !Ref Transactions,
+            "InvoicesTableName": !Ref Invoices,
+            "UsersTableName": !Ref UsersVehicles,
+            "TagsTableName": !Ref Tags,
+            "TollsCatalogTableName": !Ref TollsCatalog
+          }
 
 Outputs:
   ApiUrl:

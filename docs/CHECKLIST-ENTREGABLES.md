@@ -131,6 +131,7 @@
 
 | Métrica | Estado | Notas |
 |---------|--------|-------|
+<<<<<<< Updated upstream
 | **Lambda Functions: invocaciones** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
 | **Lambda Functions: errores** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
 | **Lambda Functions: duración** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
@@ -139,6 +140,19 @@
 | **API Gateway: errores 4xx/5xx** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
 | **DynamoDB: lectura/escritura** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
 | **DynamoDB: throttles** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
+=======
+| **Lambda Functions: invocaciones** | ✅ En dashboard | Widget "Lambda - Invocaciones" del `MonitoringDashboard` |
+| **Lambda Functions: errores** | ✅ En dashboard | Widget "Lambda - Errores" |
+| **Lambda Functions: duración** | ✅ En dashboard | Widget "Lambda - Duración Promedio" |
+| **API Gateway: número de requests** | ✅ En dashboard | Widget "API Gateway - Solicitudes y Errores" |
+| **API Gateway: latencia** | ✅ En dashboard | Widget "API Gateway - Latencia Promedio" |
+| **API Gateway: errores 4xx/5xx** | ✅ En dashboard | Mismo widget de solicitudes vs 4XX/5XX |
+| **DynamoDB: lectura/escritura** | ✅ En dashboard | Widgets "DynamoDB - Consumo de Lecturas/Escrituras" |
+| **DynamoDB: throttles** | ✅ En dashboard | Widget "DynamoDB - ThrottledRequests" |
+| **Step Functions: ejecuciones** | ✅ En dashboard | Widget "Step Functions - Ejecuciones" |
+| **Step Functions: errores** | ✅ En dashboard | Métrica `ExecutionsFailed` dentro del widget |
+| **SNS: mensajes publicados** | ✅ En dashboard | Widget "SNS - Mensajes Publicados" |
+>>>>>>> Stashed changes
 
 ### Logs Centralizados
 
@@ -147,8 +161,9 @@
 | CloudWatch Logs para todas las Lambdas | ✅ Automático | Se crean automáticamente cuando se despliegan |
 | Log groups organizados por componente | ⚠️ Parcial | Necesitan nombres consistentes |
 
-**Estado:** ❌ **0% COMPLETO** - No hay dashboard creado
+**Estado:** ✅ **100% COMPLETO** - Dashboard definido como recurso `MonitoringDashboard` en `infrastructure/template.yaml` + documentación (`docs/dashboard/README.md`, README sección 8 y DEPLOY.md).
 
+<<<<<<< Updated upstream
 **Problemas:**
 - ❌ No hay dashboard de CloudWatch definido en el template
 - ❌ No hay dashboard creado manualmente (o no está documentado)
@@ -159,6 +174,13 @@
 - Crear dashboard de CloudWatch con todas las métricas requeridas
 - Agregar definición del dashboard al template SAM (opcional pero recomendado)
 - Documentar cómo acceder al dashboard
+=======
+**Notas:**
+- ✅ El dashboard `guatepass-dashboard-<stage>` se crea automáticamente durante el deploy (CloudWatch → Dashboards).
+- ✅ Las métricas listadas arriba se visualizan en widgets dedicados.
+- ✅ Se documentó el acceso en README, `infrastructure/DEPLOY.md` y `docs/dashboard/README.md`.
+- ⚠️ Pendiente capturar screenshots finales y guardarlos en `docs/dashboard/` (se dejó la carpeta con instrucciones).
+>>>>>>> Stashed changes
 
 ---
 

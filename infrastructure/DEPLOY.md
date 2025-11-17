@@ -170,6 +170,17 @@ curl "$BASE_URL/history/payments/P-123ABC"
 curl "$BASE_URL/history/invoices/P-123ABC"
 ```
 
+### 4. Probar el dataset masivo (30 casos)
+
+El archivo `tests/webhook_test.json` incluye 30 escenarios (tag válido, registrado, no registrado, peajes inválidos, etc.). Puedes ejecutarlos con:
+
+```bash
+cd tests
+./test-flujo-completo-mejorado.sh "$WEBHOOK_URL" ./webhook_test.json
+```
+
+Esto envía cada payload al API Gateway y valida las respuestas esperadas.
+
 ## Monitoreo
 
 ### CloudWatch Logs
@@ -177,14 +188,21 @@ curl "$BASE_URL/history/invoices/P-123ABC"
 - **Lambda Functions**: `/aws/lambda/guatepass-*`
 - **Step Functions**: `/aws/stepfunctions/guatepass-process-toll-dev`
 
-### CloudWatch Metrics
+### Dashboard de CloudWatch
 
-Puedes crear dashboards en CloudWatch para monitorear:
-- Invocaciones de Lambda
-- Errores de Lambda
-- Latencia de API Gateway
-- Ejecuciones de Step Functions
-- Operaciones de DynamoDB
+El template crea automáticamente el tablero `guatepass-dashboard-<stage>` (recurso `MonitoringDashboard`). Incluye widgets para:
+- Invocaciones/errores/duración de todas las Lambdas clave.
+- Requests, latencia y errores 4xx/5xx de API Gateway.
+- Consumo de lecturas/escrituras y throttles de las tablas DynamoDB.
+- Ejecuciones de Step Functions y mensajes publicados en SNS.
+
+Para abrirlo:
+```bash
+aws cloudwatch get-dashboard \
+  --dashboard-name guatepass-dashboard-dev \
+  --query 'DashboardBody' --output text | jq
+```
+o desde la consola en **CloudWatch → Dashboards**. Consulta `docs/dashboard/README.md` para más detalles y para añadir capturas.
 
 ## Troubleshooting
 
@@ -220,4 +238,3 @@ Esto eliminará todos los recursos creados.
 3. Configurar alarmas
 4. Agregar más datos de prueba
 5. Implementar pruebas automatizadas
-
