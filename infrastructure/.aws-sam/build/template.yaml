@@ -1,0 +1,693 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: "GuatePass \u2013 Sistema completo de cobro automatizado de peajes"
+Parameters:
+  StageName:
+    Type: String
+    Default: dev
+    Description: Nombre del stage a desplegar (dev|prod, etc.)
+  ProjectName:
+    Type: String
+    Default: guatepass
+    Description: Nombre del proyecto
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Runtime: python3.12
+    Environment:
+      Variables:
+        USERS_TABLE:
+          Ref: UsersVehicles
+        TAGS_TABLE:
+          Ref: Tags
+        TRANSACTIONS_TABLE:
+          Ref: Transactions
+        INVOICES_TABLE:
+          Ref: Invoices
+        TOLLS_CATALOG_TABLE:
+          Ref: TollsCatalog
+        EVENT_BUS_NAME:
+          Ref: GuatePassBus
+        SNS_TOPIC_ARN:
+          Ref: NotificationsTopic
+  Api:
+    EndpointConfiguration: REGIONAL
+Resources:
+  RestApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName:
+        Ref: StageName
+      Cors:
+        AllowMethods: '''GET,POST,OPTIONS'''
+        AllowHeaders: '''*'''
+        AllowOrigin: '''*'''
+  GuatePassBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name:
+        Fn::Sub: guatepass-bus-${StageName}
+  TollDetectedRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName:
+        Ref: GuatePassBus
+      EventPattern:
+        source:
+        - guatepass.toll
+        detail-type:
+        - Toll Transaction Event
+      State: ENABLED
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - ProcessTollStateMachine
+          - Arn
+        Id: ProcessTollTarget
+        RoleArn:
+          Fn::GetAtt:
+          - EventBridgeStepFunctionsRole
+          - Arn
+        InputTransformer:
+          InputPathsMap:
+            detail: $.detail
+          InputTemplate: '{"detail": <detail>}'
+  ProcessTollStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name:
+        Fn::Sub: ${ProjectName}-process-toll-${StageName}
+      Type: STANDARD
+      Tracing:
+        Enabled: true
+      Definition:
+        Comment: "ProcessToll - Orquesta el procesamiento de transacciones de peaje\
+          \ con l\xF3gica de decisi\xF3n por tipo de usuario"
+        StartAt: ValidateTransaction
+        States:
+          ValidateTransaction:
+            Type: Task
+            Resource:
+              Fn::GetAtt:
+              - ValidateTransactionFunction
+              - Arn
+            Comment: Valida peaje, determina tipo de usuario y valida tag
+            Next: DetermineUserType
+            Catch:
+            - ErrorEquals:
+              - States.ALL
+              ResultPath: $.error
+              Next: HandleError
+            Retry:
+            - ErrorEquals:
+              - Lambda.ServiceException
+              - Lambda.AWSLambdaException
+              - Lambda.SdkClientException
+              - Lambda.TooManyRequestsException
+              IntervalSeconds: 2
+              MaxAttempts: 3
+              BackoffRate: 2
+          DetermineUserType:
+            Type: Choice
+            Comment: "Decide qu\xE9 flujo seguir seg\xFAn el tipo de usuario"
+            Choices:
+            - Variable: $.user_type
+              StringEquals: tag
+              Next: ProcessTagUser
+            - Variable: $.user_type
+              StringEquals: registrado
+              Next: ProcessRegisteredUser
+            - Variable: $.user_type
+              StringEquals: no_registrado
+              Next: ProcessUnregisteredUser
+            Default: ProcessUnregisteredUser
+          ProcessTagUser:
+            Type: Pass
+            Comment: Flujo para usuario con Tag (Caso C)
+            InputPath: $
+            OutputPath: $
+            Result:
+              processing_note: Usuario con Tag RFID - Caso C
+            ResultPath: $.processing_note
+            Next: CalculateCharge
+          UpdateTagBalance:
+            Type: Task
+            Resource:
+              Fn::GetAtt:
+              - UpdateTagBalanceFunction
+              - Arn
+            Comment: Actualiza balance del tag y maneja deuda si aplica
+            InputPath: $
+            Parameters:
+              tag_id.$: $.tag_info.tag_id
+              amount.$: $.charge.total
+              transaction_id.$: $.event_id
+              timestamp.$: $.timestamp
+            ResultPath: $.tag_balance_update
+            Next: PersistTransaction
+            Catch:
+            - ErrorEquals:
+              - States.ALL
+              ResultPath: $.error
+              Next: HandleError
+            Retry:
+            - ErrorEquals:
+              - Lambda.ServiceException
+              - Lambda.AWSLambdaException
+              - Lambda.SdkClientException
+              - Lambda.TooManyRequestsException
+              IntervalSeconds: 2
+              MaxAttempts: 3
+              BackoffRate: 2
+          ProcessRegisteredUser:
+            Type: Pass
+            Comment: Flujo para usuario registrado sin Tag (Caso B)
+            InputPath: $
+            OutputPath: $
+            Result:
+              processing_note: Usuario registrado sin Tag - Caso B
+            ResultPath: $.processing_note
+            Next: CalculateCharge
+          ProcessUnregisteredUser:
+            Type: Pass
+            Comment: Flujo para usuario no registrado (Caso A)
+            InputPath: $
+            OutputPath: $
+            Result:
+              processing_note: Usuario no registrado - Caso A
+            ResultPath: $.processing_note
+            Next: CalculateCharge
+          CalculateCharge:
+            Type: Task
+            Resource:
+              Fn::GetAtt:
+              - CalculateChargeFunction
+              - Arn
+            Comment: "Calcula monto seg\xFAn tipo de usuario (aplica tarifas diferentes)"
+            Next: CheckIfTagUser
+          CheckIfTagUser:
+            Type: Choice
+            Comment: Decide si actualizar balance de tag
+            Choices:
+            - Variable: $.user_type
+              StringEquals: tag
+              Next: UpdateTagBalance
+            Default: PersistTransaction
+          PersistTransaction:
+            Type: Task
+            Resource:
+              Fn::GetAtt:
+              - PersistTransactionFunction
+              - Arn
+            Comment: "Guarda transacci\xF3n e invoice en DynamoDB"
+            Next: SendNotification
+            Catch:
+            - ErrorEquals:
+              - States.ALL
+              ResultPath: $.error
+              Next: HandleError
+            Retry:
+            - ErrorEquals:
+              - Lambda.ServiceException
+              - Lambda.AWSLambdaException
+              - Lambda.SdkClientException
+              - Lambda.TooManyRequestsException
+              IntervalSeconds: 2
+              MaxAttempts: 3
+              BackoffRate: 2
+          SendNotification:
+            Type: Choice
+            Comment: "Decide si enviar notificaci\xF3n seg\xFAn tipo de usuario"
+            Choices:
+            - Variable: $.user_type
+              StringEquals: no_registrado
+              Next: EndState
+            Default: SendNotificationTask
+          SendNotificationTask:
+            Type: Task
+            Resource:
+              Fn::GetAtt:
+              - SendNotificationFunction
+              - Arn
+            Comment: "Env\xEDa notificaci\xF3n v\xEDa SNS"
+            End: true
+          EndState:
+            Type: Succeed
+            Comment: "Transacci\xF3n pendiente - esperando pago"
+          HandleError:
+            Type: Pass
+            Comment: "Maneja errores y prepara informaci\xF3n de fallo"
+            Parameters:
+              error.$: $.error
+              input.$: $
+              error_timestamp.$: $$.State.EnteredTime
+              execution_arn.$: $$.Execution.Id
+              state_machine_name.$: $$.StateMachine.Name
+              error_message.$: $.error.Error
+              error_cause.$: $.error.Cause
+            Next: FailState
+          FailState:
+            Type: Fail
+            Error: ProcessingFailed
+            Cause: "Error en Step Functions. Revisa $.error para m\xE1s detalles."
+      Role:
+        Fn::GetAtt:
+        - StepFunctionsExecutionRole
+        - Arn
+      Logging:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+        - CloudWatchLogsLogGroup:
+            LogGroupArn:
+              Fn::GetAtt:
+              - StepFunctionsLogGroup
+              - Arn
+  StepFunctionsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/stepfunctions/${ProjectName}-process-toll-${StageName}
+      RetentionInDays: 14
+  UsersVehicles:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: placa
+        AttributeType: S
+      - AttributeName: email
+        AttributeType: S
+      KeySchema:
+      - AttributeName: placa
+        KeyType: HASH
+      GlobalSecondaryIndexes:
+      - IndexName: email-index
+        KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+        Projection:
+          ProjectionType: ALL
+      TableName:
+        Fn::Sub: UsersVehicles-${StageName}
+  Tags:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: tag_id
+        AttributeType: S
+      KeySchema:
+      - AttributeName: tag_id
+        KeyType: HASH
+      TableName:
+        Fn::Sub: Tags-${StageName}
+  TollsCatalog:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: peaje_id
+        AttributeType: S
+      KeySchema:
+      - AttributeName: peaje_id
+        KeyType: HASH
+      TableName:
+        Fn::Sub: TollsCatalog-${StageName}
+  Transactions:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: placa
+        AttributeType: S
+      - AttributeName: ts
+        AttributeType: S
+      - AttributeName: timestamp
+        AttributeType: S
+      - AttributeName: event_id
+        AttributeType: S
+      KeySchema:
+      - AttributeName: placa
+        KeyType: HASH
+      - AttributeName: ts
+        KeyType: RANGE
+      GlobalSecondaryIndexes:
+      - IndexName: by_event
+        KeySchema:
+        - AttributeName: event_id
+          KeyType: HASH
+        Projection:
+          ProjectionType: ALL
+      - IndexName: placa-timestamp-index
+        KeySchema:
+        - AttributeName: placa
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+        Projection:
+          ProjectionType: ALL
+      TableName:
+        Fn::Sub: Transactions-${StageName}
+  Invoices:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: placa
+        AttributeType: S
+      - AttributeName: invoice_id
+        AttributeType: S
+      - AttributeName: created_at
+        AttributeType: S
+      KeySchema:
+      - AttributeName: placa
+        KeyType: HASH
+      - AttributeName: invoice_id
+        KeyType: RANGE
+      GlobalSecondaryIndexes:
+      - IndexName: placa-created-index
+        KeySchema:
+        - AttributeName: placa
+          KeyType: HASH
+        - AttributeName: created_at
+          KeyType: RANGE
+        Projection:
+          ProjectionType: ALL
+      TableName:
+        Fn::Sub: Invoices-${StageName}
+  NotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName:
+        Fn::Sub: Notifications-${StageName}
+  IngestWebhookFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-ingest-webhook-${StageName}
+      CodeUri: IngestWebhookFunction
+      Handler: app.lambda_handler
+      Description: Recibe eventos HTTP de peajes y publica en EventBridge
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: Tags
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: TollsCatalog
+      - Statement:
+        - Effect: Allow
+          Action:
+          - events:PutEvents
+          Resource:
+            Fn::GetAtt:
+            - GuatePassBus
+            - Arn
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RestApi
+            Path: /webhook/toll
+            Method: post
+    Metadata:
+      SamResourceId: IngestWebhookFunction
+  ReadHistoryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-read-history-${StageName}
+      CodeUri: ReadHistoryFunction
+      Handler: app.lambda_handler
+      Description: Consulta historial de pagos e invoices por placa
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: Transactions
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: Invoices
+      Events:
+        ApiPaymentEvent:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RestApi
+            Path: /history/payments/{placa}
+            Method: get
+        ApiInvoiceEvent:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RestApi
+            Path: /history/invoices/{placa}
+            Method: get
+    Metadata:
+      SamResourceId: ReadHistoryFunction
+  SeedCsvFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-seed-csv-${StageName}
+      CodeUri: SeedCsvFunction
+      Handler: app.lambda_handler
+      Description: Pobla las tablas DynamoDB con datos iniciales desde CSV
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: UsersVehicles
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: Tags
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: TollsCatalog
+    Metadata:
+      SamResourceId: SeedCsvFunction
+  ValidateTransactionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-validate-transaction-${StageName}
+      CodeUri: ValidateTransactionFunction
+      Handler: app.lambda_handler
+      Description: Valida peaje, determina tipo de usuario y valida tag
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: UsersVehicles
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: Tags
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: TollsCatalog
+    Metadata:
+      SamResourceId: ValidateTransactionFunction
+  CalculateChargeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-calculate-charge-${StageName}
+      CodeUri: CalculateChargeFunction
+      Handler: app.lambda_handler
+      Description: "Calcula el monto a cobrar seg\xFAn tipo de usuario y tarifas"
+    Metadata:
+      SamResourceId: CalculateChargeFunction
+  PersistTransactionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-persist-transaction-${StageName}
+      CodeUri: PersistTransactionFunction
+      Handler: app.lambda_handler
+      Description: "Persiste transacci\xF3n e invoice en DynamoDB"
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: Transactions
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: Invoices
+    Metadata:
+      SamResourceId: PersistTransactionFunction
+  SendNotificationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-send-notification-${StageName}
+      CodeUri: SendNotificationFunction
+      Handler: app.lambda_handler
+      Description: "Env\xEDa notificaci\xF3n del resultado de la transacci\xF3n v\xED\
+        a SNS"
+      Policies:
+      - SNSPublishMessagePolicy:
+          TopicName:
+            Ref: NotificationsTopic
+    Metadata:
+      SamResourceId: SendNotificationFunction
+  UpdateTagBalanceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-update-tag-balance-${StageName}
+      CodeUri: UpdateTagBalanceFunction
+      Handler: app.lambda_handler
+      Description: Actualiza balance del tag y maneja deuda/mora
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: Tags
+    Metadata:
+      SamResourceId: UpdateTagBalanceFunction
+  CompletePendingTransactionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${ProjectName}-complete-pending-transaction-${StageName}
+      CodeUri: CompletePendingTransactionFunction
+      Handler: app.lambda_handler
+      Description: Completa transacciones pendientes de usuarios no registrados
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: Transactions
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: Invoices
+      - SNSPublishMessagePolicy:
+          TopicName:
+            Ref: NotificationsTopic
+      Events:
+        ApiCompleteEvent:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RestApi
+            Path: /transactions/{event_id}/complete
+            Method: post
+    Metadata:
+      SamResourceId: CompletePendingTransactionFunction
+  EventBridgeStepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: events.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: InvokeStepFunctions
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - states:StartExecution
+            Resource:
+              Fn::GetAtt:
+              - ProcessTollStateMachine
+              - Arn
+  StepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: states.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: InvokeLambdaFunctions
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - lambda:InvokeFunction
+            Resource:
+            - Fn::GetAtt:
+              - ValidateTransactionFunction
+              - Arn
+            - Fn::GetAtt:
+              - CalculateChargeFunction
+              - Arn
+            - Fn::GetAtt:
+              - UpdateTagBalanceFunction
+              - Arn
+            - Fn::GetAtt:
+              - PersistTransactionFunction
+              - Arn
+            - Fn::GetAtt:
+              - SendNotificationFunction
+              - Arn
+          - Effect: Allow
+            Action:
+            - logs:CreateLogDelivery
+            - logs:GetLogDelivery
+            - logs:UpdateLogDelivery
+            - logs:DeleteLogDelivery
+            - logs:ListLogDeliveries
+            - logs:PutResourcePolicy
+            - logs:DescribeResourcePolicies
+            - logs:DescribeLogGroups
+            Resource: '*'
+Outputs:
+  ApiUrl:
+    Description: URL base del API (stage actual)
+    Value:
+      Fn::Sub: https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}
+  WebhookEndpoint:
+    Description: Endpoint para ingesta de eventos de peaje
+    Value:
+      Fn::Sub: https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/webhook/toll
+  PaymentsHistoryEndpoint:
+    Description: Endpoint para consultar historial de pagos
+    Value:
+      Fn::Sub: https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/history/payments/{placa}
+  InvoicesHistoryEndpoint:
+    Description: Endpoint para consultar historial de invoices
+    Value:
+      Fn::Sub: https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/history/invoices/{placa}
+  CompleteTransactionEndpoint:
+    Description: Endpoint para completar transacciones pendientes
+    Value:
+      Fn::Sub: https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/transactions/{event_id}/complete
+  EventBusName:
+    Description: Nombre del EventBridge Bus
+    Value:
+      Ref: GuatePassBus
+  StateMachineArn:
+    Description: ARN de la State Machine
+    Value:
+      Fn::GetAtt:
+      - ProcessTollStateMachine
+      - Arn
+  StateMachineName:
+    Description: Nombre de la State Machine
+    Value:
+      Fn::Sub: ${ProjectName}-process-toll-${StageName}
+  SnsTopicArn:
+    Description: ARN del SNS Topic para notificaciones
+    Value:
+      Ref: NotificationsTopic
+  Tables:
+    Description: Tablas DynamoDB creadas
+    Value:
+      Fn::Sub: 'UsersVehicles=${UsersVehicles}
+
+        Tags=${Tags}
+
+        TollsCatalog=${TollsCatalog}
+
+        Transactions=${Transactions}
+
+        Invoices=${Invoices}
+
+        '

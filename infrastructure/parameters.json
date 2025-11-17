@@ -1,0 +1,11 @@
+[
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "dev"
+  },
+  {
+    "ParameterKey": "ProjectName",
+    "ParameterValue": "guatepass"
+  }
+]
+

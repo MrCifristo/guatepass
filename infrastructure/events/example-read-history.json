@@ -1,0 +1,18 @@
+{
+  "httpMethod": "GET",
+  "path": "/history/payments/P-123ABC",
+  "pathParameters": {
+    "placa": "P-123ABC"
+  },
+  "queryStringParameters": {
+    "limit": "10"
+  },
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "requestContext": {
+    "requestId": "test-request-id",
+    "stage": "dev"
+  }
+}
+

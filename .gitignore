@@ -1,0 +1,45 @@
+# AWS SAM Build artifacts
+.aws-sam/
+packaged.yaml
+packaged-template.yaml
+samconfig.toml.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+*.log
+
+# AWS credentials (if accidentally committed)
+.aws/
+credentials
+
