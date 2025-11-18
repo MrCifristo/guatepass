@@ -313,41 +313,70 @@ La URL se verá así:
 
 ---
 
-## 💳 Paso 8: Crear Request - POST /transactions/{event_id}/complete
+## 💳 Paso 8: Completar Transacción Pendiente y Generar Invoice
 
-Este endpoint se usa para completar transacciones pendientes (usuarios no registrados).
+Este endpoint completa una transacción pendiente (usuario no registrado) y **automáticamente genera una invoice** con estado "paid".
 
-### 8.1. Obtener el event_id
+### 8.1. Obtener el event_id de la Transacción Pendiente
 
-Primero, necesitas el `event_id` de una transacción pendiente:
+Tienes **3 formas** de obtener el `event_id`:
 
-1. Envía un webhook para un usuario no registrado (Paso 5)
-2. Copia el `event_id` de la respuesta
-3. O consulta el historial de pagos y busca una transacción con `status: "pending"`
+#### Opción A: Desde la respuesta del webhook
+1. Cuando enviaste el webhook para un usuario no registrado (Paso 5)
+2. La respuesta incluyó un `event_id`, cópialo
+
+#### Opción B: Consultando el historial de pagos
+1. Crea un request **GET /history/payments/{placa}** (Paso 6)
+2. Usa la placa del usuario no registrado (ej: `P-900XXX`)
+3. Busca una transacción con `"status": "pending"`
+4. Copia el `event_id` de esa transacción
+
+#### Opción C: Consultando directamente en DynamoDB
+```bash
+aws dynamodb query \
+  --table-name Transactions-dev \
+  --index-name by_event \
+  --key-condition-expression "event_id = :event_id" \
+  --expression-attribute-values '{":event_id":{"S":"tu-event-id-aqui"}}' \
+  --region us-east-1
+```
 
 ### 8.2. Crear Nueva Request
 
-1. **"New"** → **"HTTP Request"**
-2. Nómbrala: **"POST Completar Transacción"**
+1. Haz clic en **"New"** → **"HTTP Request"**
+2. Nómbrala: **"POST Completar Transacción - Generar Invoice"**
 
 ### 8.3. Configurar Método y URL
 
 - **Método:** `POST`
 - **URL:** `{{base_url}}/transactions/{event_id}/complete`
 
-**Reemplaza `{event_id}` con el event_id real**, por ejemplo:
+**⚠️ IMPORTANTE:** Reemplaza `{event_id}` con el event_id real de tu transacción pendiente.
+
+**Ejemplo de URL completa:**
 ```
 {{base_url}}/transactions/310ac553-623b-4761-5923-d15c878f2dd9_98dfb182-5ce9-586e-31e8-96b9f4f7c4b8/complete
 ```
 
+O directamente:
+```
+https://1peur8nfu4.execute-api.us-east-1.amazonaws.com/dev/transactions/310ac553-623b-4761-5923-d15c878f2dd9_98dfb182-5ce9-586e-31e8-96b9f4f7c4b8/complete
+```
+
 ### 8.4. Configurar Headers
 
-- **Key:** `Content-Type`
-- **Value:** `application/json`
+1. Ve a la pestaña **"Headers"**
+2. Agrega:
+   - **Key:** `Content-Type`
+   - **Value:** `application/json`
 
 ### 8.5. Configurar Body
 
-**Body (raw, JSON):**
+1. Ve a la pestaña **"Body"**
+2. Selecciona **"raw"**
+3. En el dropdown, selecciona **"JSON"**
+4. Pega el siguiente JSON:
+
 ```json
 {
     "event_id": "310ac553-623b-4761-5923-d15c878f2dd9_98dfb182-5ce9-586e-31e8-96b9f4f7c4b8",
@@ -356,22 +385,103 @@ Primero, necesitas el `event_id` de una transacción pendiente:
 }
 ```
 
-**Explicación de campos:**
-- `event_id`: El mismo event_id de la URL
-- `payment_method`: Método de pago (ej: "cash", "card", "transfer")
-- `paid_at`: Fecha/hora del pago en formato ISO 8601
+**⚠️ IMPORTANTE:** 
+- El `event_id` en el body **debe ser el mismo** que el de la URL
+- Si no incluyes `payment_method`, se usará "cash" por defecto
+- Si no incluyes `paid_at`, se usará la fecha/hora actual
+
+**Campos del Body:**
+- `event_id` (requerido): El mismo event_id de la URL
+- `payment_method` (opcional): Método de pago - valores válidos: `"cash"`, `"card"`, `"transfer"`, etc.
+- `paid_at` (opcional): Fecha/hora del pago en formato ISO 8601 (ej: `"2025-01-27T10:15:00Z"`)
+
+**Ejemplo mínimo (solo event_id):**
+```json
+{
+    "event_id": "310ac553-623b-4761-5923-d15c878f2dd9_98dfb182-5ce9-586e-31e8-96b9f4f7c4b8"
+}
+```
 
 ### 8.6. Enviar Request
 
-1. Haz clic en **"Send"**
+1. Haz clic en **"Send"** (botón azul)
 2. **Respuesta esperada (HTTP 200):**
 ```json
 {
-    "message": "Transacción completada exitosamente",
-    "event_id": "uuid-aqui",
-    "status": "completed"
+    "event_id": "310ac553-623b-4761-5923-d15c878f2dd9_98dfb182-5ce9-586e-31e8-96b9f4f7c4b8",
+    "placa": "P-900XXX",
+    "status": "completed",
+    "invoice_id": "INV-310ac55-P-900XXX",
+    "completed_at": "2025-01-27T10:15:00Z",
+    "message": "Transaction completed successfully"
 }
 ```
+
+### 8.7. ¿Qué hace este endpoint?
+
+Cuando completas la transacción, el sistema automáticamente:
+
+1. ✅ **Actualiza la transacción** de `pending` a `completed`
+2. ✅ **Crea una invoice** con estado `paid` 
+3. ✅ **Genera un invoice_id** único (formato: `INV-{event_id_8_chars}-{placa}`)
+4. ✅ **Envía una notificación** a SNS
+5. ✅ **Retorna el invoice_id** en la respuesta
+
+### 8.8. Verificar que se Creó la Invoice
+
+Después de completar la transacción, verifica que la invoice se creó:
+
+1. Crea un request **GET /history/invoices/{placa}** (Paso 7)
+2. Usa la misma placa (ej: `P-900XXX`)
+3. Haz clic en **"Send"**
+4. Deberías ver la invoice recién creada:
+
+```json
+{
+    "type": "invoices",
+    "placa": "P-900XXX",
+    "count": 1,
+    "items": [
+        {
+            "invoice_id": "INV-310ac55-P-900XXX",
+            "placa": "P-900XXX",
+            "amount": "25.00",
+            "status": "paid",
+            "peaje_id": "PEAJE_ZONA10",
+            "created_at": "2025-01-27T10:15:00Z"
+        }
+    ]
+}
+```
+
+### 8.9. Errores Comunes
+
+#### Error 404 - Transaction not found
+```json
+{
+    "error": "Transaction not found",
+    "message": "Transaction with event_id xxx not found"
+}
+```
+**Solución:** Verifica que el `event_id` sea correcto y que la transacción exista.
+
+#### Error 400 - Invalid transaction status
+```json
+{
+    "error": "Invalid transaction status",
+    "message": "Transaction xxx is already completed"
+}
+```
+**Solución:** Esta transacción ya fue completada. Solo puedes completar transacciones con estado `pending`.
+
+#### Error 400 - Missing required field
+```json
+{
+    "error": "Missing required field",
+    "message": "event_id is required"
+}
+```
+**Solución:** Asegúrate de incluir el `event_id` en el body o en la URL.
 
 ---
 

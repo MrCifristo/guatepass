@@ -1,8 +1,8 @@
 {
 	"info": {
 		"_postman_id": "guatepass-collection-2025",
-		"name": "GuatePass - API Local Testing",
-		"description": "Colección de Postman para probar el sistema GuatePass localmente",
+		"name": "GuatePass - API Testing Collection",
+		"description": "Colección completa de Postman para probar el sistema GuatePass. Incluye todos los flujos: usuarios con tag, registrados sin tag, y no registrados.\n\n⚠️ TROUBLESHOOTING:\n- Si obtienes 'Missing Authentication Token' en GET /users/{placa}/tag:\n  1. Verifica que el endpoint esté desplegado: `sam deploy`\n  2. Verifica la URL base en las variables de colección\n  3. Verifica que la ruta esté correctamente configurada en API Gateway\n  4. Asegúrate de usar el método GET (no POST)\n\n- Para consultar transacciones pendientes:\n  - GET /history/payments/{placa}?status=pending\n  - GET /history/transactions/{placa}?status=pending\n  - GET /history/payments/{placa}?requires_payment=true (para completed con requires_payment)\n\n- Para consultar invoices:\n  - GET /history/invoices/{placa}",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -58,10 +58,205 @@
 			"description": "Poblar las tablas DynamoDB con datos iniciales antes de probar el flujo completo"
 		},
 		{
-			"name": "2. Webhook - Ingesta de Eventos",
+			"name": "2. Gestión de Tags",
 			"item": [
 				{
-					"name": "POST /webhook/toll - Usuario con Tag",
+					"name": "POST /users/{placa}/tag - Crear Tag",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 201\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"pm.test(\"Tag created successfully\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('tag');",
+									"    pm.expect(jsonData.tag).to.have.property('tag_id');",
+									"    pm.expect(jsonData.tag.status).to.eql('active');",
+									"    ",
+									"    // Guardar tag_id para usar en otras pruebas",
+									"    pm.environment.set('last_tag_id', jsonData.tag.tag_id);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"tag_id\": \"TAG-001\",\n    \"balance\": 100.00,\n    \"status\": \"active\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/users/P-123ABC/tag",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users",
+								"P-123ABC",
+								"tag"
+							]
+						},
+						"description": "Crea un nuevo tag RFID asociado a una placa. La placa debe existir en UsersVehicles."
+					},
+					"response": []
+				},
+				{
+					"name": "GET /users/{placa}/tag - Obtener Tag",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has tag\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('tag');",
+									"    pm.expect(jsonData.tag).to.have.property('tag_id');",
+									"    pm.expect(jsonData.tag).to.have.property('balance');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/P-123ABC/tag",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users",
+								"P-123ABC",
+								"tag"
+							]
+						},
+						"description": "Obtiene la información del tag asociado a una placa"
+					},
+					"response": []
+				},
+				{
+					"name": "PUT /users/{placa}/tag - Actualizar Tag",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Tag updated successfully\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('tag');",
+									"    pm.expect(jsonData.tag.balance).to.eql(150);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"balance\": 150.00,\n    \"status\": \"active\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/users/P-123ABC/tag",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users",
+								"P-123ABC",
+								"tag"
+							]
+						},
+						"description": "Actualiza los campos de un tag existente. Puedes actualizar balance, status, debt, late_fee, has_debt."
+					},
+					"response": []
+				},
+				{
+					"name": "DELETE /users/{placa}/tag - Desactivar Tag",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Tag deactivated successfully\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('message');",
+									"    pm.expect(jsonData.message).to.include('deactivated');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/users/P-123ABC/tag",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"users",
+								"P-123ABC",
+								"tag"
+							]
+						},
+						"description": "Desactiva un tag (soft delete). Cambia el status a 'inactive' en lugar de eliminarlo físicamente."
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoints CRUD para gestionar tags RFID asociados a placas"
+		},
+		{
+			"name": "3. Flujo Principal - Webhook",
+			"item": [
+				{
+					"name": "POST /webhook/toll - Solo Placa",
 					"event": [
 						{
 							"listen": "test",
@@ -94,7 +289,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"placa\": \"P-778NDR\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"tag_id\": \"TAG-109\",\n    \"timestamp\": \"2025-01-27T10:00:00Z\"\n}",
+							"raw": "{\n    \"placa\": \"P-123ABC\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"timestamp\": \"2025-01-27T10:00:00Z\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -111,12 +306,647 @@
 								"toll"
 							]
 						},
-						"description": "Envía un evento de peaje para un usuario con Tag. Este endpoint:\n1. Valida el peaje y tag\n2. Publica evento en EventBridge\n3. Retorna event_id y status 'queued'\n\n**Nota:** En local, EventBridge no funciona realmente, pero la función retornará éxito."
+						"description": "Webhook con solo placa (sin tag_id). El sistema determinará si la placa está registrada o no."
 					},
 					"response": []
 				},
 				{
-					"name": "POST /webhook/toll - Usuario Registrado (sin Tag)",
+					"name": "POST /webhook/toll - Solo Tag",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has event_id\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('event_id');",
+									"    pm.expect(jsonData.status).to.eql('queued');",
+									"    ",
+									"    // Guardar event_id para usar en otras pruebas",
+									"    pm.environment.set('last_event_id', jsonData.event_id);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"tag_id\": \"TAG-001\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"timestamp\": \"2025-01-27T10:00:00Z\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/webhook/toll",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"webhook",
+								"toll"
+							]
+						},
+						"description": "Webhook con solo tag_id (sin placa). El sistema obtendrá la placa asociada al tag automáticamente."
+					},
+					"response": []
+				},
+				{
+					"name": "POST /webhook/toll - Placa y Tag",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has event_id\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('event_id');",
+									"    pm.expect(jsonData.status).to.eql('queued');",
+									"    ",
+									"    // Guardar event_id para usar en otras pruebas",
+									"    pm.environment.set('last_event_id', jsonData.event_id);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"placa\": \"P-123ABC\",\n    \"tag_id\": \"TAG-001\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"timestamp\": \"2025-01-27T10:00:00Z\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/webhook/toll",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"webhook",
+								"toll"
+							]
+						},
+						"description": "Webhook con placa y tag_id. El sistema validará que el tag corresponde a la placa."
+					},
+					"response": []
+				}
+			],
+			"description": "Endpoint principal para recibir eventos de peaje. Acepta solo placa, solo tag_id, o ambos."
+		},
+		{
+			"name": "4. Usuarios Registrados con Tag",
+			"item": [
+				{
+					"name": "Con Fondos",
+					"item": [
+						{
+							"name": "POST /webhook/toll - Tag con Fondos",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"var jsonData = pm.response.json();",
+											"pm.environment.set('last_event_id', jsonData.event_id);",
+											"pm.environment.set('last_placa', 'P-778NDR');"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"placa\": \"P-778NDR\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"tag_id\": \"TAG-109\",\n    \"timestamp\": \"2025-01-27T10:00:00Z\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{base_url}}/webhook/toll",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"webhook",
+										"toll"
+									]
+								},
+								"description": "Usuario registrado con tag RFID y fondos suficientes. La transacción se completará automáticamente y se descontará del balance del tag."
+							},
+							"response": []
+						},
+						{
+							"name": "GET /history/payments/{placa} - Verificar Transacción",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/payments/P-778NDR",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"payments",
+										"P-778NDR"
+									]
+								},
+								"description": "Verifica que la transacción se completó correctamente. Espera unos segundos después del webhook."
+							},
+							"response": []
+						}
+					],
+					"description": "Caso: Usuario con tag RFID que tiene fondos suficientes"
+				},
+				{
+					"name": "Sin Fondos (Crea Deuda)",
+					"item": [
+						{
+							"name": "POST /webhook/toll - Tag sin Fondos",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"var jsonData = pm.response.json();",
+											"pm.environment.set('last_event_id', jsonData.event_id);",
+											"pm.environment.set('last_placa', 'P-438EDF');"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"placa\": \"P-438EDF\",\n    \"peaje_id\": \"PEAJE_CARRETERA_EL_SALVADOR\",\n    \"tag_id\": \"TAG-072\",\n    \"timestamp\": \"2025-01-27T10:30:00Z\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{base_url}}/webhook/toll",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"webhook",
+										"toll"
+									]
+								},
+								"description": "Usuario registrado con tag RFID pero sin fondos suficientes. El sistema creará una deuda y aplicará mora si corresponde."
+							},
+							"response": []
+						},
+						{
+							"name": "GET /users/{placa}/tag - Verificar Deuda",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test(\"Tag has debt\", function () {",
+											"    var jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('tag');",
+											"    if (jsonData.tag.has_debt) {",
+											"        pm.expect(jsonData.tag.debt).to.be.above(0);",
+											"    }",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/users/P-438EDF/tag",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"users",
+										"P-438EDF",
+										"tag"
+									]
+								},
+								"description": "Verifica que el tag tiene deuda (debt > 0) y has_debt = true. Si obtienes 'Missing Authentication Token', verifica que la ruta esté correctamente configurada en API Gateway."
+							},
+							"response": []
+						},
+						{
+							"name": "GET /history/payments/{placa} - Verificar Transacción con Deuda",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/payments/P-438EDF?status=completed&requires_payment=true",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"payments",
+										"P-438EDF"
+									],
+									"query": [
+										{
+											"key": "status",
+											"value": "completed",
+											"description": "Filtrar por status"
+										},
+										{
+											"key": "requires_payment",
+											"value": "true",
+											"description": "Filtrar solo transacciones que requieren pago"
+										}
+									]
+								},
+								"description": "Verifica que existe una transacción completada pero que requiere pago (requires_payment=true)"
+							},
+							"response": []
+						}
+					],
+					"description": "Caso: Usuario con tag RFID sin fondos suficientes. Se crea deuda y se aplica mora."
+				}
+			],
+			"description": "Pruebas para usuarios registrados que tienen tag RFID asignado"
+		},
+		{
+			"name": "5. Usuarios Registrados sin Tag",
+			"item": [
+				{
+					"name": "Con Fondos",
+					"item": [
+						{
+							"name": "POST /webhook/toll - Registrado sin Tag (con fondos)",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"var jsonData = pm.response.json();",
+											"pm.environment.set('last_event_id', jsonData.event_id);",
+											"pm.environment.set('last_placa', 'P-123ABC');"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"placa\": \"P-123ABC\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"timestamp\": \"2025-01-27T10:05:00Z\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{base_url}}/webhook/toll",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"webhook",
+										"toll"
+									]
+								},
+								"description": "Usuario registrado sin tag RFID pero con fondos. La transacción se completará automáticamente."
+							},
+							"response": []
+						},
+						{
+							"name": "GET /history/payments/{placa} - Verificar Transacción",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/payments/P-123ABC",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"payments",
+										"P-123ABC"
+									]
+								},
+								"description": "Verifica que la transacción se completó correctamente"
+							},
+							"response": []
+						}
+					],
+					"description": "Caso: Usuario registrado sin tag pero con fondos suficientes"
+				},
+				{
+					"name": "Sin Fondos (Queda en Pending)",
+					"item": [
+						{
+							"name": "POST /webhook/toll - Registrado sin Tag (sin fondos)",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"var jsonData = pm.response.json();",
+											"pm.environment.set('last_event_id', jsonData.event_id);",
+											"pm.environment.set('last_placa', 'P-456DEF');",
+											"pm.environment.set('pending_event_id', jsonData.event_id);"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"placa\": \"P-456DEF\",\n    \"peaje_id\": \"PEAJE_CA1\",\n    \"timestamp\": \"2025-01-27T10:10:00Z\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{base_url}}/webhook/toll",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"webhook",
+										"toll"
+									]
+								},
+								"description": "Usuario registrado sin tag y sin fondos. La transacción quedará en estado 'pending' y requerirá pago manual."
+							},
+							"response": []
+						},
+						{
+							"name": "GET /history/payments/{placa} - Verificar Pending",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test(\"Has pending transactions\", function () {",
+											"    var jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('items');",
+											"    var pendingItems = jsonData.items.filter(function(item) {",
+											"        return item.status === 'pending' || item.requires_payment === true;",
+											"    });",
+											"    pm.expect(pendingItems.length).to.be.above(0);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/payments/P-456DEF",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"payments",
+										"P-456DEF"
+									]
+								},
+								"description": "Verifica que la transacción quedó en estado 'pending' o 'completed' con requires_payment=true. Espera unos segundos después del webhook."
+							},
+							"response": []
+						},
+						{
+							"name": "GET /history/transactions/{placa}?status=pending - Solo Pendientes",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/transactions/P-456DEF?status=pending",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"transactions",
+										"P-456DEF"
+									],
+									"query": [
+										{
+											"key": "status",
+											"value": "pending",
+											"description": "Filtrar solo transacciones pendientes"
+										}
+									]
+								},
+								"description": "Consulta solo las transacciones en estado 'pending' para esta placa"
+							},
+							"response": []
+						},
+						{
+							"name": "GET /history/transactions/{placa}?requires_payment=true - Requieren Pago",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/transactions/P-456DEF?requires_payment=true",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"transactions",
+										"P-456DEF"
+									],
+									"query": [
+										{
+											"key": "requires_payment",
+											"value": "true",
+											"description": "Filtrar solo transacciones que requieren pago (completed pero sin pagar)"
+										}
+									]
+								},
+								"description": "Consulta transacciones completadas pero que requieren pago (usuarios registrados sin fondos)"
+							},
+							"response": []
+						},
+						{
+							"name": "POST /transactions/{event_id}/complete - Completar Pago",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test(\"Transaction completed\", function () {",
+											"    var jsonData = pm.response.json();",
+											"    pm.expect(jsonData.status).to.eql('completed');",
+											"    pm.expect(jsonData).to.have.property('invoice_id');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"event_id\": \"{{pending_event_id}}\",\n    \"payment_method\": \"cash\",\n    \"paid_at\": \"2025-01-27T10:15:00Z\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{base_url}}/transactions/{{pending_event_id}}/complete",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"transactions",
+										"{{pending_event_id}}",
+										"complete"
+									]
+								},
+								"description": "Completa una transacción pendiente enviando la información de pago. Actualiza el status a 'completed' y crea un invoice."
+							},
+							"response": []
+						},
+						{
+							"name": "GET /history/payments/{placa} - Verificar Completada",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/payments/P-456DEF",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"payments",
+										"P-456DEF"
+									]
+								},
+								"description": "Verifica que la transacción ahora está en estado 'completed'"
+							},
+							"response": []
+						}
+					],
+					"description": "Caso: Usuario registrado sin tag y sin fondos. La transacción queda en pending y requiere completar manualmente."
+				}
+			],
+			"description": "Pruebas para usuarios registrados que NO tienen tag RFID asignado"
+		},
+		{
+			"name": "6. Usuarios No Registrados",
+			"item": [
+				{
+					"name": "POST /webhook/toll - No Registrado",
 					"event": [
 						{
 							"listen": "test",
@@ -127,7 +957,9 @@
 									"});",
 									"",
 									"var jsonData = pm.response.json();",
-									"pm.environment.set('last_event_id', jsonData.event_id);"
+									"pm.environment.set('last_event_id', jsonData.event_id);",
+									"pm.environment.set('last_placa', 'P-999XXX');",
+									"pm.environment.set('pending_event_id', jsonData.event_id);"
 								],
 								"type": "text/javascript"
 							}
@@ -143,7 +975,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"placa\": \"P-006TEK\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"timestamp\": \"2025-01-27T10:05:00Z\"\n}",
+							"raw": "{\n    \"placa\": \"P-999XXX\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"timestamp\": \"2025-01-27T10:20:00Z\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -160,148 +992,32 @@
 								"toll"
 							]
 						},
-						"description": "Envía un evento de peaje para un usuario registrado sin Tag"
+						"description": "Usuario NO registrado en el sistema. La transacción quedará en estado 'pending' y requerirá pago manual."
 					},
 					"response": []
 				},
 				{
-					"name": "POST /webhook/toll - Usuario No Registrado",
+					"name": "GET /history/payments/{placa} - Verificar Pending",
 					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"placa\": \"P-900XXX\",\n    \"peaje_id\": \"PEAJE_ZONA10\",\n    \"timestamp\": \"2025-01-27T10:10:00Z\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
+						"method": "GET",
+						"header": [],
 						"url": {
-							"raw": "{{base_url}}/webhook/toll",
+							"raw": "{{base_url}}/history/payments/P-999XXX",
 							"host": [
 								"{{base_url}}"
 							],
 							"path": [
-								"webhook",
-								"toll"
+								"history",
+								"payments",
+								"P-999XXX"
 							]
 						},
-						"description": "Envía un evento de peaje para un usuario NO registrado"
+						"description": "Verifica que la transacción quedó en estado 'pending'"
 					},
 					"response": []
 				},
 				{
-					"name": "POST /webhook/toll - Error: Peaje Inválido",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test(\"Status code is 400\", function () {",
-									"    pm.response.to.have.status(400);",
-									"});",
-									"",
-									"pm.test(\"Error message about invalid peaje\", function () {",
-									"    var jsonData = pm.response.json();",
-									"    pm.expect(jsonData).to.have.property('error');",
-									"});"
-								],
-								"type": "text/javascript"
-							}
-						}
-					],
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"placa\": \"P-123ABC\",\n    \"peaje_id\": \"PEAJE_INVALIDO\",\n    \"timestamp\": \"2025-01-27T10:00:00Z\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{base_url}}/webhook/toll",
-							"host": [
-								"{{base_url}}"
-							],
-							"path": [
-								"webhook",
-								"toll"
-							]
-						},
-						"description": "Prueba de validación: debe retornar error 400 si el peaje no existe"
-					},
-					"response": []
-				},
-				{
-					"name": "POST /webhook/toll - Error: Campos Faltantes",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test(\"Status code is 400\", function () {",
-									"    pm.response.to.have.status(400);",
-									"});"
-								],
-								"type": "text/javascript"
-							}
-						}
-					],
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"placa\": \"P-123ABC\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{base_url}}/webhook/toll",
-							"host": [
-								"{{base_url}}"
-							],
-							"path": [
-								"webhook",
-								"toll"
-							]
-						},
-						"description": "Prueba de validación: debe retornar error 400 si faltan campos requeridos"
-					},
-					"response": []
-				}
-			],
-			"description": "Endpoints para ingesta de eventos de peaje"
-		},
-		{
-			"name": "3. Historial - Consultas",
-			"item": [
-				{
-					"name": "GET /history/payments/{placa} - Usuario con Tag",
+					"name": "POST /transactions/{event_id}/complete - Completar Pago",
 					"event": [
 						{
 							"listen": "test",
@@ -311,10 +1027,9 @@
 									"    pm.response.to.have.status(200);",
 									"});",
 									"",
-									"pm.test(\"Response has items array\", function () {",
+									"pm.test(\"Transaction completed\", function () {",
 									"    var jsonData = pm.response.json();",
-									"    pm.expect(jsonData).to.have.property('items');",
-									"    pm.expect(jsonData.type).to.eql('payments');",
+									"    pm.expect(jsonData.status).to.eql('completed');",
 									"});"
 								],
 								"type": "text/javascript"
@@ -322,97 +1037,78 @@
 						}
 					],
 					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{base_url}}/history/payments/P-778NDR",
-							"host": [
-								"{{base_url}}"
-							],
-							"path": [
-								"history",
-								"payments",
-								"P-456DEF"
-							]
-						},
-						"description": "Consulta el historial de pagos para un usuario con Tag"
-					},
-					"response": []
-				},
-				{
-					"name": "GET /history/payments/{placa} - Con Paginación",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{base_url}}/history/payments/P-123ABC?limit=5",
-							"host": [
-								"{{base_url}}"
-							],
-							"path": [
-								"history",
-								"payments",
-								"P-123ABC"
-							],
-							"query": [
-								{
-									"key": "limit",
-									"value": "5"
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"event_id\": \"{{pending_event_id}}\",\n    \"payment_method\": \"cash\",\n    \"paid_at\": \"2025-01-27T10:25:00Z\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
 								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/transactions/{{pending_event_id}}/complete",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"transactions",
+								"{{pending_event_id}}",
+								"complete"
 							]
 						},
-						"description": "Consulta historial con límite de resultados"
+						"description": "Completa la transacción pendiente de usuario no registrado"
 					},
 					"response": []
 				},
 				{
-					"name": "GET /history/invoices/{placa}",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test(\"Status code is 200\", function () {",
-									"    pm.response.to.have.status(200);",
-									"});",
-									"",
-									"pm.test(\"Response has invoices\", function () {",
-									"    var jsonData = pm.response.json();",
-									"    pm.expect(jsonData).to.have.property('items');",
-									"    pm.expect(jsonData.type).to.eql('invoices');",
-									"});"
-								],
-								"type": "text/javascript"
-							}
-						}
-					],
+					"name": "GET /history/invoices/{placa} - Verificar Invoice",
 					"request": {
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/history/invoices/P-778NDR",
+							"raw": "{{base_url}}/history/invoices/P-999XXX",
 							"host": [
 								"{{base_url}}"
 							],
 							"path": [
 								"history",
 								"invoices",
-								"P-456DEF"
+								"P-999XXX"
 							]
 						},
-						"description": "Consulta el historial de invoices (facturas) para una placa"
+						"description": "Verifica que se creó un invoice después de completar el pago"
 					},
 					"response": []
-				},
+				}
+			],
+			"description": "Pruebas para usuarios NO registrados en el sistema"
+		},
+		{
+			"name": "7. Completar Transacciones Pendientes",
+			"item": [
 				{
-					"name": "GET /history/payments/{placa} - Error: Placa Faltante",
+					"name": "POST /transactions/{event_id}/complete",
 					"event": [
 						{
 							"listen": "test",
 							"script": {
 								"exec": [
-									"pm.test(\"Status code is 400\", function () {",
-									"    pm.response.to.have.status(400);",
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Transaction completed\", function () {",
+									"    var jsonData = pm.response.json();",
+									"    pm.expect(jsonData.status).to.eql('completed');",
+									"    pm.expect(jsonData).to.have.property('invoice_id');",
 									"});"
 								],
 								"type": "text/javascript"
@@ -420,25 +1116,290 @@
 						}
 					],
 					"request": {
-						"method": "GET",
-						"header": [],
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"event_id\": \"REEMPLAZA_CON_EVENT_ID\",\n    \"payment_method\": \"cash\",\n    \"paid_at\": \"2025-01-27T10:30:00Z\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
 						"url": {
-							"raw": "{{base_url}}/history/payments/",
+							"raw": "{{base_url}}/transactions/REEMPLAZA_CON_EVENT_ID/complete",
 							"host": [
 								"{{base_url}}"
 							],
 							"path": [
-								"history",
-								"payments",
-								""
+								"transactions",
+								"REEMPLAZA_CON_EVENT_ID",
+								"complete"
 							]
 						},
-						"description": "Prueba de validación: debe retornar error si falta la placa"
+						"description": "Completa una transacción pendiente. Reemplaza REEMPLAZA_CON_EVENT_ID con el event_id de una transacción en estado 'pending'."
 					},
 					"response": []
 				}
 			],
-			"description": "Endpoints para consultar historial de transacciones e invoices"
+			"description": "Endpoint para completar transacciones pendientes de usuarios sin fondos o no registrados"
+		},
+		{
+			"name": "8. Historial - Consultas",
+			"item": [
+				{
+					"name": "Transacciones (Payments)",
+					"item": [
+						{
+							"name": "GET /history/payments/{placa} - Todas las Transacciones",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test(\"Response has items array\", function () {",
+											"    var jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('items');",
+											"    pm.expect(jsonData.type).to.eql('payments');",
+											"    console.log('Total transacciones:', jsonData.count);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/payments/{{last_placa}}",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"payments",
+										"{{last_placa}}"
+									]
+								},
+								"description": "Consulta todas las transacciones (payments) para una placa. Incluye todas: pending, completed, con y sin requires_payment."
+							},
+							"response": []
+						},
+						{
+							"name": "GET /history/payments/{placa}?status=pending - Solo Pendientes",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/payments/{{last_placa}}?status=pending",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"payments",
+										"{{last_placa}}"
+									],
+									"query": [
+										{
+											"key": "status",
+											"value": "pending",
+											"description": "Filtrar solo transacciones en estado pending"
+										}
+									]
+								},
+								"description": "Consulta solo las transacciones en estado 'pending' (usuarios no registrados o sin fondos)"
+							},
+							"response": []
+						},
+						{
+							"name": "GET /history/payments/{placa}?requires_payment=true - Requieren Pago",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/payments/{{last_placa}}?requires_payment=true",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"payments",
+										"{{last_placa}}"
+									],
+									"query": [
+										{
+											"key": "requires_payment",
+											"value": "true",
+											"description": "Filtrar transacciones que requieren pago (completed pero requires_payment=true)"
+										}
+									]
+								},
+								"description": "Consulta transacciones completadas pero que requieren pago (usuarios registrados sin fondos suficientes)"
+							},
+							"response": []
+						},
+						{
+							"name": "GET /history/transactions/{placa} - Todas las Transacciones",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/transactions/{{last_placa}}",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"transactions",
+										"{{last_placa}}"
+									]
+								},
+								"description": "Endpoint alternativo para consultar transacciones. Equivalente a /history/payments/{placa}"
+							},
+							"response": []
+						},
+						{
+							"name": "GET /history/transactions/{placa}?status=pending - Solo Pendientes",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/transactions/{{last_placa}}?status=pending",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"transactions",
+										"{{last_placa}}"
+									],
+									"query": [
+										{
+											"key": "status",
+											"value": "pending"
+										}
+									]
+								},
+								"description": "Consulta solo transacciones pendientes usando el endpoint /history/transactions"
+							},
+							"response": []
+						},
+						{
+							"name": "GET /history/payments/{placa} - Con Paginación",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/payments/P-123ABC?limit=5",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"payments",
+										"P-123ABC"
+									],
+									"query": [
+										{
+											"key": "limit",
+											"value": "5",
+											"description": "Límite de resultados"
+										}
+									]
+								},
+								"description": "Consulta historial con límite de resultados"
+							},
+							"response": []
+						}
+					],
+					"description": "Endpoints para consultar transacciones (payments) de la tabla Transactions"
+				},
+				{
+					"name": "Invoices",
+					"item": [
+						{
+							"name": "GET /history/invoices/{placa} - Todas las Invoices",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test(\"Status code is 200\", function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test(\"Response has invoices\", function () {",
+											"    var jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('items');",
+											"    pm.expect(jsonData.type).to.eql('invoices');",
+											"    console.log('Total invoices:', jsonData.count);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/invoices/{{last_placa}}",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"invoices",
+										"{{last_placa}}"
+									]
+								},
+								"description": "Consulta todas las invoices (facturas) para una placa. Las invoices solo se crean cuando el pago está completo."
+							},
+							"response": []
+						},
+						{
+							"name": "GET /history/invoices/{placa} - Con Paginación",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/history/invoices/P-123ABC?limit=10",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"history",
+										"invoices",
+										"P-123ABC"
+									],
+									"query": [
+										{
+											"key": "limit",
+											"value": "10"
+										}
+									]
+								},
+								"description": "Consulta invoices con límite de resultados"
+							},
+							"response": []
+						}
+					],
+					"description": "Endpoints para consultar invoices (facturas) de la tabla Invoices"
+				}
+			],
+			"description": "Endpoints para consultar historial de transacciones e invoices. Usa filtros para encontrar transacciones pendientes o que requieren pago."
 		}
 	],
 	"event": [
@@ -464,10 +1425,33 @@
 	"variable": [
 		{
 			"key": "base_url",
-			"value": "https://1peur8nfu4.execute-api.us-east-1.amazonaws.com/dev",
+			"value": "https://YOUR-API-ID.execute-api.us-east-1.amazonaws.com/dev",
 			"type": "string",
 			"description": "URL base de la API Gateway. Actualiza con tu URL real obtenida de CloudFormation Outputs."
+		},
+		{
+			"key": "last_event_id",
+			"value": "",
+			"type": "string",
+			"description": "Último event_id generado por un webhook"
+		},
+		{
+			"key": "last_placa",
+			"value": "",
+			"type": "string",
+			"description": "Última placa usada en las pruebas"
+		},
+		{
+			"key": "pending_event_id",
+			"value": "",
+			"type": "string",
+			"description": "Event ID de una transacción en estado pending"
+		},
+		{
+			"key": "last_tag_id",
+			"value": "",
+			"type": "string",
+			"description": "Último tag_id creado o consultado"
 		}
 	]
 }
-

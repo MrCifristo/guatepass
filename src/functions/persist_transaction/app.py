@@ -37,12 +37,41 @@ def lambda_handler(event, context):
                 return None
             return Decimal(str(value))
         
-        # Determinar status según tipo de usuario
+        # Determinar status y requires_payment según tipo de usuario y fondos
+        requires_payment = False
+        create_invoice = False
+        
         if user_type == 'no_registrado':
+            # Usuario no registrado: siempre pending y requiere pago
             transaction_status = 'pending'
+            requires_payment = True
             create_invoice = False
+        elif user_type == 'tag':
+            # Usuario con tag: verificar si hay deuda
+            tag_balance_update = event.get('tag_balance_update', {})
+            has_debt = tag_balance_update.get('has_debt', False)
+            requires_payment = tag_balance_update.get('requires_payment', False)
+            
+            if has_debt or requires_payment:
+                # Tiene deuda o requiere pago: completed pero sin invoice
+                transaction_status = 'completed'
+                requires_payment = True
+                create_invoice = False
+            else:
+                # Sin deuda: completed y crear invoice
+                transaction_status = 'completed'
+                requires_payment = False
+                create_invoice = True
         else:
+            # Usuario registrado sin tag: verificar si tiene fondos
+            # Por ahora, asumimos que si no tiene tag, necesita verificar fondos
+            # En el futuro, esto podría venir de UsersVehicles.saldo_disponible
+            # Por defecto, si es registrado sin tag, asumimos que tiene fondos
+            # Si no tiene fondos, esto se manejaría en otra función
+            # Por ahora, marcamos como completed con requires_payment=false
+            # TODO: Agregar verificación de fondos de UsersVehicles
             transaction_status = 'completed'
+            requires_payment = False
             create_invoice = True
         
         # Crear registro de transacción
@@ -65,7 +94,7 @@ def lambda_handler(event, context):
             'currency': charge.get('currency', 'GTQ'),
             'timestamp': timestamp,  # CRÍTICO: Debe tener valor para que funcione el GSI placa-timestamp-index
             'status': transaction_status,
-            'requires_payment': (user_type == 'no_registrado'),
+            'requires_payment': requires_payment,
             'created_at': datetime.utcnow().isoformat() + 'Z'
         }
         
@@ -109,7 +138,7 @@ def lambda_handler(event, context):
             'transaction_id': event_id,
             'invoice_id': invoice_id,
             'status': transaction_status,
-            'requires_payment': (user_type == 'no_registrado'),
+            'requires_payment': requires_payment,
             'persisted_at': datetime.utcnow().isoformat() + 'Z'
         }
         
@@ -119,7 +148,7 @@ def lambda_handler(event, context):
             'user_type': user_type,
             'status': transaction_status,
             'invoice_id': invoice_id,
-            'requires_payment': (user_type == 'no_registrado'),
+            'requires_payment': requires_payment,
             'amount': float(charge.get('total', 0)) if charge.get('total') else 0
         }))
         

@@ -30,24 +30,38 @@ def validate_toll(peaje_id):
     return response.get('Item')
 
 
-def validate_tag(tag_id, placa):
+def get_tag_info(tag_id):
     """
-    Valida que el tag existe, está activo y corresponde a la placa.
+    Obtiene la información del tag. Retorna el tag si existe, None si no.
+    """
+    tags_table = dynamodb.Table(TAGS_TABLE)
+    response = tags_table.get_item(Key={'tag_id': tag_id})
+    return response.get('Item')
+
+
+def validate_tag(tag_id, placa=None):
+    """
+    Valida que el tag existe, está activo y corresponde a la placa (si se proporciona).
     
     NOTA: Esta es una validación temprana (fail-fast) para mejorar la experiencia
     del usuario. La validación completa también se realiza en ValidateTransactionFunction
     dentro del flujo de Step Functions para garantizar consistencia.
+    
+    Args:
+        tag_id: ID del tag a validar
+        placa: Placa opcional para validar correspondencia
+    
+    Returns:
+        tuple: (error_message, tag_info) - Si error_message es None, el tag es válido
     """
-    tags_table = dynamodb.Table(TAGS_TABLE)
-    response = tags_table.get_item(Key={'tag_id': tag_id})
-    tag = response.get('Item')
+    tag = get_tag_info(tag_id)
     if not tag:
-        return 'Tag no encontrado'
+        return ('Tag no encontrado', None)
     if tag.get('status') != 'active':
-        return 'Tag inactivo'
-    if tag.get('placa') != placa:
-        return f'Tag {tag_id} pertenece a {tag.get("placa")}, no a {placa}'
-    return None
+        return ('Tag inactivo', None)
+    if placa and tag.get('placa') != placa:
+        return (f'Tag {tag_id} pertenece a {tag.get("placa")}, no a {placa}', None)
+    return (None, tag)
 
 
 def lambda_handler(event, context):
@@ -58,7 +72,9 @@ def lambda_handler(event, context):
     try:
         body = json.loads(event.get('body', '{}')) if isinstance(event.get('body'), str) else event.get('body', {})
 
-        required_fields = ['placa', 'peaje_id', 'timestamp']
+        # Validar campos requeridos: peaje_id y timestamp son obligatorios
+        # placa O tag_id deben estar presentes (al menos uno)
+        required_fields = ['peaje_id', 'timestamp']
         missing_fields = [field for field in required_fields if not body.get(field)]
 
         if missing_fields:
@@ -67,6 +83,33 @@ def lambda_handler(event, context):
                 'missing_fields': missing_fields
             })
 
+        placa = body.get('placa')
+        tag_id = body.get('tag_id')
+
+        # Debe haber al menos placa O tag_id
+        if not placa and not tag_id:
+            return build_response(400, {
+                'error': 'Missing required field',
+                'message': 'Debe proporcionarse al menos "placa" o "tag_id"'
+            })
+
+        # Si solo viene tag_id, obtener la placa del tag
+        if tag_id and not placa:
+            tag_error, tag_info = validate_tag(tag_id)
+            if tag_error:
+                return build_response(400, {
+                    'error': 'Invalid tag',
+                    'message': tag_error
+                })
+            # Obtener placa del tag
+            placa = tag_info.get('placa')
+            if not placa:
+                return build_response(400, {
+                    'error': 'Invalid tag',
+                    'message': f'Tag {tag_id} no tiene placa asociada'
+                })
+
+        # Validar que el peaje existe
         peaje_info = validate_toll(body['peaje_id'])
         if not peaje_info:
             return build_response(400, {
@@ -74,12 +117,11 @@ def lambda_handler(event, context):
                 'message': f'Peaje {body["peaje_id"]} no existe'
             })
 
-        # Validación temprana de tag (fail-fast)
+        # Validación temprana de tag si se proporciona (fail-fast)
         # Esta validación se repite en ValidateTransactionFunction para garantizar consistencia
         # pero permite rechazar eventos inválidos antes de entrar al flujo de Step Functions
-        tag_id = body.get('tag_id')
         if tag_id:
-            tag_error = validate_tag(tag_id, body['placa'])
+            tag_error, _ = validate_tag(tag_id, placa)
             if tag_error:
                 return build_response(400, {
                     'error': 'Invalid tag',
@@ -89,10 +131,10 @@ def lambda_handler(event, context):
         event_id = str(uuid.uuid4())
         event_detail = {
             'event_id': event_id,
-            'placa': body['placa'],
+            'placa': placa,  # Ahora siempre tenemos placa (obtenida del tag si es necesario)
             'peaje_id': body['peaje_id'],
             'timestamp': body['timestamp'],
-            'tag_id': tag_id,
+            'tag_id': tag_id,  # Puede ser None si solo se envió placa
             'ingested_at': datetime.utcnow().isoformat() + 'Z'
         }
 

@@ -68,7 +68,7 @@ codeuri = "/Users/milton/GitHub/guatepass/src/functions/update_tag_balance"
 runtime = "python3.12"
 architecture = "x86_64"
 handler = "app.lambda_handler"
-manifest_hash = "72b6c308755b39c30c33166733610c19"
+manifest_hash = "de27925bb701f496e2dcd81cfcd478f0"
 packagetype = "Zip"
 functions = ["UpdateTagBalanceFunction"]
 
@@ -77,8 +77,17 @@ codeuri = "/Users/milton/GitHub/guatepass/src/functions/complete_pending_transac
 runtime = "python3.12"
 architecture = "x86_64"
 handler = "app.lambda_handler"
-manifest_hash = "72b6c308755b39c30c33166733610c19"
+manifest_hash = "de27925bb701f496e2dcd81cfcd478f0"
 packagetype = "Zip"
 functions = ["CompletePendingTransactionFunction"]
+
+[function_build_definitions.d4d21d37-001c-4914-9e6f-b9cf1c5b9615]
+codeuri = "/Users/milton/GitHub/guatepass/src/functions/manage_tags"
+runtime = "python3.12"
+architecture = "x86_64"
+handler = "app.lambda_handler"
+manifest_hash = "9d117ef2a5509b08c60585f62160d3c8"
+packagetype = "Zip"
+functions = ["ManageTagsFunction"]
 
 [layer_build_definitions]

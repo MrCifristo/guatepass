@@ -10,8 +10,7 @@ dynamodb = boto3.resource('dynamodb')
 TAGS_TABLE = os.environ.get('TAGS_TABLE')
 
 # Configuración de mora
-LATE_FEE_RATE = Decimal('0.05')  # 5% de mora
-LATE_FEE_THRESHOLD_DAYS = 30  # Días para aplicar mora
+LATE_FEE_PER_MINUTE = Decimal('1.00')  # 1 GTQ por cada minuto de atraso
 
 
 def to_decimal(value):
@@ -23,13 +22,34 @@ def to_decimal(value):
     return Decimal(str(value))
 
 
-def calculate_late_fee(debt, days_overdue):
-    """Calcula cargo por mora basado en días de atraso."""
-    if days_overdue <= 0:
+def calculate_late_fee_by_minutes(minutes_elapsed):
+    """
+    Calcula cargo por mora basado en minutos transcurridos.
+    +1 GTQ por cada minuto desde la creación de la transacción.
+    """
+    if minutes_elapsed <= 0:
         return Decimal('0.00')
-    # 5% por cada 30 días de atraso
-    periods = Decimal(str(days_overdue)) / Decimal(str(LATE_FEE_THRESHOLD_DAYS))
-    return debt * LATE_FEE_RATE * periods
+    return LATE_FEE_PER_MINUTE * Decimal(str(minutes_elapsed))
+
+
+def calculate_minutes_elapsed(created_at, current_time):
+    """
+    Calcula los minutos transcurridos entre dos timestamps ISO 8601.
+    """
+    try:
+        from dateutil import parser
+        created = parser.parse(created_at)
+        if isinstance(current_time, str):
+            current = parser.parse(current_time)
+        else:
+            current = current_time
+        
+        delta = current - created
+        minutes = int(delta.total_seconds() / 60)
+        return max(0, minutes)
+    except Exception as e:
+        print(f'Error calculating minutes: {str(e)}')
+        return 0
 
 
 def lambda_handler(event, context):
@@ -94,14 +114,12 @@ def lambda_handler(event, context):
             new_balance = Decimal('0.00')
             has_debt = True
             
-            # Calcular mora si hay deuda previa o nueva
-            # Por simplicidad, asumimos que si hay deuda, hay mora
-            if new_debt > 0:
-                # Calcular días desde última actualización (simplificado)
-                last_updated = tag.get('last_updated', tag.get('created_at', timestamp))
-                # En producción, calcular días reales
-                days_overdue = 1  # Simplificado por ahora
-                new_late_fee = calculate_late_fee(new_debt, days_overdue)
+            # Calcular mora por minutos transcurridos desde la creación de la transacción
+            # Si hay deuda, significa que la transacción se creó sin fondos
+            # La mora se calculará cuando se complete el pago, pero aquí marcamos que hay deuda
+            # Por ahora, no calculamos mora aquí, se calculará en complete_pending_transaction
+            # cuando se pague la deuda
+            new_late_fee = current_late_fee  # Se calculará al momento del pago
         
         # Actualizar tag usando transacción atómica
         update_expression = "SET balance = :balance, debt = :debt, late_fee = :late_fee, last_updated = :last_updated"
@@ -131,6 +149,7 @@ def lambda_handler(event, context):
             'debt': float(new_debt),
             'late_fee': float(new_late_fee),
             'has_debt': has_debt,
+            'requires_payment': has_debt,  # Si hay deuda, requiere pago
             'success': True,
             'transaction_id': transaction_id
         }
