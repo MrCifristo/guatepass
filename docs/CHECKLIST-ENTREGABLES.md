@@ -157,22 +157,6 @@ El Step Functions está completamente funcional con:
 
 ## 📊 5.4 Dashboard de Monitoreo con CloudWatch
 
-### Métricas Requeridas
-
-| Métrica | Estado | Notas |
-|---------|--------|-------|
-| **Lambda Functions: invocaciones** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
-| **Lambda Functions: errores** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
-| **Lambda Functions: duración** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
-| **API Gateway: número de requests** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
-| **API Gateway: latencia** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
-| **API Gateway: errores 4xx/5xx** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
-| **DynamoDB: lectura/escritura** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
-| **DynamoDB: throttles** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
-| **Step Functions: ejecuciones** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
-| **Step Functions: errores** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
-| **SNS: mensajes publicados** | ⚠️ Disponible | Se crean automáticamente pero no hay dashboard |
-
 ### Logs Centralizados
 
 | Requisito | Estado | Notas |
@@ -181,17 +165,6 @@ El Step Functions está completamente funcional con:
 | Log groups organizados por componente | ✅ Sí | Nombres consistentes: `/aws/lambda/guatepass-*` |
 | Log group explícito para Step Functions | ✅ Sí | `/aws/stepfunctions/guatepass-process-toll-{stage}` con retención de 14 días |
 
-**Estado:** ❌ **0% COMPLETO** - No hay dashboard creado
-
-**Problemas:**
-- ❌ No hay dashboard de CloudWatch definido en el template
-- ❌ No hay dashboard creado manualmente (o no está documentado)
-- ⚠️ Las métricas existen automáticamente pero no están visualizadas
-- ❌ No hay capturas del dashboard (mencionado en estructura pero no encontrado)
-
-**Acción Requerida:**
-- Crear dashboard de CloudWatch con todas las métricas requeridas
-- Agregar definición del dashboard al template SAM (opcional pero recomendado)
 - Documentar cómo acceder al dashboard en README o DEPLOY.md
 - Agregar capturas del dashboard en `docs/dashboard/` (si existe la carpeta)
 
