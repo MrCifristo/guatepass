@@ -131,6 +131,9 @@ Se crea automáticamente desde el template (`MonitoringDashboard`) e incluye:
 - Ejecuciones/errores del Step Function `guatepass-process-toll-<stage>`.
 - Mensajes publicados y fallidos en el topic `Notifications-<stage>`.
 
+<img src="SCR-20251117-ugqe.png" alt="Arquitectura Cloud GuatePass" />
+<img src="SCR-20251117-ugyo.png" alt="Arquitectura Cloud GuatePass" />
+
 Para abrirlo:
 ```bash
 aws cloudwatch get-dashboard \
