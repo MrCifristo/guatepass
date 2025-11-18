@@ -21,28 +21,32 @@ aws logs tail /aws/lambda/guatepass-ingest-webhook-dev --follow
 aws logs tail /aws/stepfunctions/guatepass-process-toll-dev --since 1h
 ```
 
-## 2. Métricas Clave
+## 2. Dashboard de CloudWatch (`guatepass-dashboard-<stage>`)
 
-- **API Gateway**: `4XXError`, `5XXError`, `Latency`, `Count` (namespace `AWS/ApiGateway`, stage = `dev`, apiId = `3zihz9t8qb`).
-- **Lambda**: `Invocations`, `Errors`, `Duration`, `Throttles` por cada función.
-- **Step Functions**: `ExecutionsStarted`, `ExecutionsSucceeded`, `ExecutionsFailed`.
-- **DynamoDB**: `ConsumedReadCapacityUnits`, `ConsumedWriteCapacityUnits`, `ThrottledRequests` por tabla.
-- **SNS**: `NumberOfMessagesPublished`, `NumberOfNotificationsFailed`.
+El recurso `MonitoringDashboard` del template SAM crea automáticamente un tablero llamado `guatepass-dashboard-<stage>` (ej. `guatepass-dashboard-dev`) con todos los widgets solicitados en el checklist.
 
-## 3. Dashboards recomendados
+### Widgets incluidos
+- **Lambda**: Invocaciones, errores y duración promedio para `ingest`, `validate`, `calculate`, `update_tag_balance`, `persist`, `send_notification`, `read_history` y `complete_pending`.
+- **API Gateway**: Requests totales (`Count`), errores `4XX/5XX` y latencia promedio (`Latency`) filtrados por `ApiId=<Ref RestApi>` y `Stage=<StageName>`.
+- **DynamoDB**: `ConsumedRead/WriteCapacityUnits` y `ThrottledRequests` para las tablas `Transactions`, `Invoices`, `UsersVehicles`, `Tags` y `TollsCatalog`.
+- **Step Functions**: `ExecutionsStarted/Succeeded/Failed/Throttled` para `guatepass-process-toll-<stage>`.
+- **SNS**: `NumberOfMessagesPublished` y `NumberOfNotificationsFailed` del tópico `Notifications-<stage>`.
 
-1. **Resumen de Flujo**  
-   - Gráfico stacked de ejecuciones Step Functions (Succeeded vs Failed).  
-   - Latencia del webhook (API Gateway).  
-   - Conteo de Invocaciones/Errores por Lambda crítica.
+### Cómo abrirlo
+```bash
+aws cloudwatch get-dashboard \
+  --dashboard-name guatepass-dashboard-dev \
+  --query 'DashboardBody' --output text | jq
+```
+o desde la consola: **CloudWatch → Dashboards → guatepass-dashboard-dev**. Detalle paso a paso en `docs/dashboard/README.md` (incluye recordatorio para capturar pantallas del tablero).
 
-2. **Persistencia DynamoDB**  
-   - Consumo de RCU/WCU para `transactions`, `invoices`, `users`.  
-   - Alarmas de `ThrottledRequests`.
+## 3. Métricas Clave
 
-3. **Notificaciones**  
-   - Métricas de SNS (publicaciones vs fallos).  
-   - Logs filtrados por `notification_sent=false`.
+- **Lambda**: `Invocations`, `Errors`, `Duration`, `Throttles` con dimensión `FunctionName=${ProjectName}-*-<stage>`.
+- **API Gateway**: `Count`, `Latency`, `4XXError`, `5XXError` con dimensiones `ApiId=<Ref RestApi>` y `Stage=<StageName>`.
+- **Step Functions**: `ExecutionsStarted/Succeeded/Failed` y `ExecutionThrottled` con dimensión `StateMachineArn`.
+- **DynamoDB**: `ConsumedReadCapacityUnits`, `ConsumedWriteCapacityUnits`, `ThrottledRequests` por cada tabla.
+- **SNS**: `NumberOfMessagesPublished`, `NumberOfNotificationsFailed` con dimensión `TopicName`.
 
 ## 4. Alarmas sugeridas
 

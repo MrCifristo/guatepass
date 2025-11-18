@@ -534,7 +534,9 @@ Resources:
       Policies:
       - SNSPublishMessagePolicy:
           TopicName:
-            Ref: NotificationsTopic
+            Fn::GetAtt:
+            - NotificationsTopic
+            - TopicName
     Metadata:
       SamResourceId: SendNotificationFunction
   UpdateTagBalanceFunction:
@@ -696,6 +698,141 @@ Resources:
             - logs:DescribeResourcePolicies
             - logs:DescribeLogGroups
             Resource: '*'
+  MonitoringDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName:
+        Fn::Sub: ${ProjectName}-dashboard-${StageName}
+      DashboardBody:
+        Fn::Sub:
+        - "{\n  \"periodOverride\": \"inherit\",\n  \"widgets\": [\n    {\n      \"\
+          type\": \"metric\",\n      \"x\": 0,\n      \"y\": 0,\n      \"width\":\
+          \ 12,\n      \"height\": 6,\n      \"properties\": {\n        \"title\"\
+          : \"Lambda - Invocaciones\",\n        \"metrics\": [\n          [ \"AWS/Lambda\"\
+          , \"Invocations\", \"FunctionName\", \"${ProjectName}-ingest-webhook-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-validate-transaction-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-calculate-charge-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-update-tag-balance-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-persist-transaction-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-send-notification-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-read-history-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-complete-pending-transaction-${StageName}\"\
+          , { \"stat\": \"Sum\" } ]\n        ],\n        \"region\": \"${AWS::Region}\"\
+          ,\n        \"view\": \"timeSeries\",\n        \"stat\": \"Sum\",\n     \
+          \   \"period\": 300,\n        \"stacked\": false\n      }\n    },\n    {\n\
+          \      \"type\": \"metric\",\n      \"x\": 12,\n      \"y\": 0,\n      \"\
+          width\": 12,\n      \"height\": 6,\n      \"properties\": {\n        \"\
+          title\": \"Lambda - Errores\",\n        \"metrics\": [\n          [ \"AWS/Lambda\"\
+          , \"Errors\", \"FunctionName\", \"${ProjectName}-ingest-webhook-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-validate-transaction-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-calculate-charge-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-update-tag-balance-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-persist-transaction-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-send-notification-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-read-history-${StageName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-complete-pending-transaction-${StageName}\"\
+          , { \"stat\": \"Sum\" } ]\n        ],\n        \"region\": \"${AWS::Region}\"\
+          ,\n        \"view\": \"timeSeries\",\n        \"period\": 300,\n       \
+          \ \"stacked\": false\n      }\n    },\n    {\n      \"type\": \"metric\"\
+          ,\n      \"x\": 0,\n      \"y\": 6,\n      \"width\": 12,\n      \"height\"\
+          : 6,\n      \"properties\": {\n        \"title\": \"Lambda - Duraci\xF3\
+          n Promedio (ms)\",\n        \"metrics\": [\n          [ \"AWS/Lambda\",\
+          \ \"Duration\", \"FunctionName\", \"${ProjectName}-ingest-webhook-${StageName}\"\
+          , { \"stat\": \"Average\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-validate-transaction-${StageName}\"\
+          , { \"stat\": \"Average\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-calculate-charge-${StageName}\"\
+          , { \"stat\": \"Average\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-persist-transaction-${StageName}\"\
+          , { \"stat\": \"Average\" } ],\n          [ \".\", \".\", \".\", \"${ProjectName}-send-notification-${StageName}\"\
+          , { \"stat\": \"Average\" } ]\n        ],\n        \"region\": \"${AWS::Region}\"\
+          ,\n        \"view\": \"timeSeries\",\n        \"period\": 300,\n       \
+          \ \"stacked\": false\n      }\n    },\n    {\n      \"type\": \"metric\"\
+          ,\n      \"x\": 12,\n      \"y\": 6,\n      \"width\": 12,\n      \"height\"\
+          : 6,\n      \"properties\": {\n        \"title\": \"API Gateway - Solicitudes\
+          \ y Errores\",\n        \"metrics\": [\n          [ \"AWS/ApiGateway\",\
+          \ \"Count\", \"ApiId\", \"${RestApiId}\", \"Stage\", \"${StageName}\", {\
+          \ \"stat\": \"Sum\", \"label\": \"Requests\" } ],\n          [ \".\", \"\
+          4XXError\", \".\", \".\", \".\", \".\", { \"stat\": \"Sum\", \"label\":\
+          \ \"4XX\" } ],\n          [ \".\", \"5XXError\", \".\", \".\", \".\", \"\
+          .\", { \"stat\": \"Sum\", \"label\": \"5XX\" } ]\n        ],\n        \"\
+          region\": \"${AWS::Region}\",\n        \"view\": \"timeSeries\",\n     \
+          \   \"stacked\": false,\n        \"period\": 300\n      }\n    },\n    {\n\
+          \      \"type\": \"metric\",\n      \"x\": 0,\n      \"y\": 12,\n      \"\
+          width\": 12,\n      \"height\": 6,\n      \"properties\": {\n        \"\
+          title\": \"API Gateway - Latencia Promedio\",\n        \"metrics\": [\n\
+          \          [ \"AWS/ApiGateway\", \"Latency\", \"ApiId\", \"${RestApiId}\"\
+          , \"Stage\", \"${StageName}\", { \"stat\": \"Average\" } ]\n        ],\n\
+          \        \"region\": \"${AWS::Region}\",\n        \"view\": \"timeSeries\"\
+          ,\n        \"period\": 300\n      }\n    },\n    {\n      \"type\": \"metric\"\
+          ,\n      \"x\": 12,\n      \"y\": 12,\n      \"width\": 12,\n      \"height\"\
+          : 6,\n      \"properties\": {\n        \"title\": \"DynamoDB - Consumo de\
+          \ Lecturas\",\n        \"metrics\": [\n          [ \"AWS/DynamoDB\", \"\
+          ConsumedReadCapacityUnits\", \"TableName\", \"${TransactionsTableName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${InvoicesTableName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${UsersTableName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${TagsTableName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${TollsCatalogTableName}\"\
+          , { \"stat\": \"Sum\" } ]\n        ],\n        \"region\": \"${AWS::Region}\"\
+          ,\n        \"view\": \"timeSeries\",\n        \"period\": 300\n      }\n\
+          \    },\n    {\n      \"type\": \"metric\",\n      \"x\": 0,\n      \"y\"\
+          : 18,\n      \"width\": 12,\n      \"height\": 6,\n      \"properties\"\
+          : {\n        \"title\": \"DynamoDB - Consumo de Escrituras\",\n        \"\
+          metrics\": [\n          [ \"AWS/DynamoDB\", \"ConsumedWriteCapacityUnits\"\
+          , \"TableName\", \"${TransactionsTableName}\", { \"stat\": \"Sum\" } ],\n\
+          \          [ \".\", \".\", \".\", \"${InvoicesTableName}\", { \"stat\":\
+          \ \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${UsersTableName}\",\
+          \ { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${TagsTableName}\"\
+          , { \"stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${TollsCatalogTableName}\"\
+          , { \"stat\": \"Sum\" } ]\n        ],\n        \"region\": \"${AWS::Region}\"\
+          ,\n        \"view\": \"timeSeries\",\n        \"period\": 300\n      }\n\
+          \    },\n    {\n      \"type\": \"metric\",\n      \"x\": 12,\n      \"\
+          y\": 18,\n      \"width\": 12,\n      \"height\": 6,\n      \"properties\"\
+          : {\n        \"title\": \"DynamoDB - ThrottledRequests\",\n        \"metrics\"\
+          : [\n          [ \"AWS/DynamoDB\", \"ThrottledRequests\", \"TableName\"\
+          , \"${TransactionsTableName}\", { \"stat\": \"Sum\" } ],\n          [ \"\
+          .\", \".\", \".\", \"${InvoicesTableName}\", { \"stat\": \"Sum\" } ],\n\
+          \          [ \".\", \".\", \".\", \"${UsersTableName}\", { \"stat\": \"\
+          Sum\" } ],\n          [ \".\", \".\", \".\", \"${TagsTableName}\", { \"\
+          stat\": \"Sum\" } ],\n          [ \".\", \".\", \".\", \"${TollsCatalogTableName}\"\
+          , { \"stat\": \"Sum\" } ]\n        ],\n        \"region\": \"${AWS::Region}\"\
+          ,\n        \"view\": \"timeSeries\",\n        \"period\": 300\n      }\n\
+          \    },\n    {\n      \"type\": \"metric\",\n      \"x\": 0,\n      \"y\"\
+          : 24,\n      \"width\": 12,\n      \"height\": 6,\n      \"properties\"\
+          : {\n        \"title\": \"Step Functions - Ejecuciones\",\n        \"metrics\"\
+          : [\n          [ \"AWS/States\", \"ExecutionsStarted\", \"StateMachineArn\"\
+          , \"${StateMachineArn}\", { \"stat\": \"Sum\", \"label\": \"Started\" }\
+          \ ],\n          [ \".\", \"ExecutionsSucceeded\", \".\", \".\", { \"stat\"\
+          : \"Sum\", \"label\": \"Succeeded\" } ],\n          [ \".\", \"ExecutionsFailed\"\
+          , \".\", \".\", { \"stat\": \"Sum\", \"label\": \"Failed\" } ],\n      \
+          \    [ \".\", \"ExecutionThrottled\", \".\", \".\", { \"stat\": \"Sum\"\
+          , \"label\": \"Throttled\" } ]\n        ],\n        \"region\": \"${AWS::Region}\"\
+          ,\n        \"view\": \"timeSeries\",\n        \"period\": 300\n      }\n\
+          \    },\n    {\n      \"type\": \"metric\",\n      \"x\": 12,\n      \"\
+          y\": 24,\n      \"width\": 12,\n      \"height\": 6,\n      \"properties\"\
+          : {\n        \"title\": \"SNS - Mensajes Publicados\",\n        \"metrics\"\
+          : [\n          [ \"AWS/SNS\", \"NumberOfMessagesPublished\", \"TopicName\"\
+          , \"${TopicName}\", { \"stat\": \"Sum\" } ],\n          [ \".\", \"NumberOfNotificationsFailed\"\
+          , \".\", \".\", { \"stat\": \"Sum\" } ]\n        ],\n        \"region\"\
+          : \"${AWS::Region}\",\n        \"view\": \"timeSeries\",\n        \"period\"\
+          : 300\n      }\n    }\n  ]\n}\n"
+        - RestApiId:
+            Ref: RestApi
+          StateMachineArn:
+            Fn::GetAtt:
+            - ProcessTollStateMachine
+            - Arn
+          TopicName:
+            Fn::GetAtt:
+            - NotificationsTopic
+            - TopicName
+          TransactionsTableName:
+            Ref: Transactions
+          InvoicesTableName:
+            Ref: Invoices
+          UsersTableName:
+            Ref: UsersVehicles
+          TagsTableName:
+            Ref: Tags
+          TollsCatalogTableName:
+            Ref: TollsCatalog
 Outputs:
   ApiUrl:
     Description: URL base del API (stage actual)
