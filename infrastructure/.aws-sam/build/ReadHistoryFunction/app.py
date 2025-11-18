@@ -35,15 +35,17 @@ def lambda_handler(event, context):
             }
         
         # Determinar qué tabla consultar según el path
-        if '/payments/' in path:
+        if '/payments/' in path or '/history/transactions/' in path:
             # Consultar transacciones
             table = dynamodb.Table(TRANSACTIONS_TABLE)
             index_name = 'placa-timestamp-index'
             
-            # Obtener query parameters para paginación
+            # Obtener query parameters para paginación y filtros
             query_params = event.get('queryStringParameters') or {}
             limit = int(query_params.get('limit', 50))
             last_evaluated_key = query_params.get('last_key')
+            status_filter = query_params.get('status')  # Filtrar por status: pending, completed
+            requires_payment_filter = query_params.get('requires_payment')  # Filtrar por requires_payment: true, false
             
             scan_kwargs = {
                 'IndexName': index_name,
@@ -51,6 +53,27 @@ def lambda_handler(event, context):
                 'Limit': limit,
                 'ScanIndexForward': False  # Orden descendente (más recientes primero)
             }
+            
+            # Agregar filtros si se especifican
+            filter_expressions = []
+            expression_attribute_names = {}
+            expression_attribute_values = {}
+            
+            if status_filter:
+                filter_expressions.append('#status = :status')
+                expression_attribute_names['#status'] = 'status'
+                expression_attribute_values[':status'] = status_filter
+            
+            if requires_payment_filter:
+                filter_expressions.append('requires_payment = :requires_payment')
+                expression_attribute_values[':requires_payment'] = requires_payment_filter.lower() == 'true'
+            
+            if filter_expressions:
+                scan_kwargs['FilterExpression'] = ' AND '.join(filter_expressions)
+                if expression_attribute_names:
+                    scan_kwargs['ExpressionAttributeNames'] = expression_attribute_names
+                if expression_attribute_values:
+                    scan_kwargs['ExpressionAttributeValues'] = expression_attribute_values
             
             if last_evaluated_key:
                 scan_kwargs['ExclusiveStartKey'] = json.loads(last_evaluated_key)

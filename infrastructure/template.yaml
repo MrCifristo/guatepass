@@ -389,7 +389,7 @@ Resources:
       FunctionName: !Sub "${ProjectName}-read-history-${StageName}"
       CodeUri: ../src/functions/read_history
       Handler: app.lambda_handler
-      Description: Consulta historial de pagos e invoices por placa
+      Description: Consulta historial de pagos e invoices por placa con soporte para filtros
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref Transactions
@@ -407,6 +407,12 @@ Resources:
           Properties:
             RestApiId: !Ref RestApi
             Path: /history/invoices/{placa}
+            Method: get
+        ApiTransactionsEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RestApi
+            Path: /history/transactions/{placa}
             Method: get
 
   SeedCsvFunction:
@@ -488,12 +494,14 @@ Resources:
       FunctionName: !Sub "${ProjectName}-complete-pending-transaction-${StageName}"
       CodeUri: ../src/functions/complete_pending_transaction
       Handler: app.lambda_handler
-      Description: Completa transacciones pendientes de usuarios no registrados
+      Description: Completa transacciones pendientes o con requires_payment=true. Calcula mora por minutos y crea invoice.
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref Transactions
         - DynamoDBCrudPolicy:
             TableName: !Ref Invoices
+        - DynamoDBCrudPolicy:
+            TableName: !Ref Tags
         - SNSPublishMessagePolicy:
             TopicName: !Ref NotificationsTopic
       Events:

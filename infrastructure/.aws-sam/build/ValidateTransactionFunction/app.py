@@ -29,8 +29,22 @@ def lambda_handler(event, context):
         peaje_id = detail.get('peaje_id')
         tag_id = detail.get('tag_id')
         
-        if not placa or not peaje_id:
-            raise ValueError('Missing required fields: placa and peaje_id')
+        if not peaje_id:
+            raise ValueError('Missing required field: peaje_id')
+        
+        # Si no hay placa pero hay tag_id, obtener la placa del tag
+        if not placa and tag_id:
+            tags_table = dynamodb.Table(TAGS_TABLE)
+            tag_response = tags_table.get_item(Key={'tag_id': tag_id})
+            if 'Item' not in tag_response:
+                raise ValueError(f'Tag {tag_id} no encontrado')
+            tag_info_temp = tag_response['Item']
+            placa = tag_info_temp.get('placa')
+            if not placa:
+                raise ValueError(f'Tag {tag_id} no tiene placa asociada')
+        
+        if not placa:
+            raise ValueError('Missing required field: debe proporcionarse placa o tag_id')
         
         # Validar que el peaje existe
         tolls_table = dynamodb.Table(TOLLS_CATALOG_TABLE)
