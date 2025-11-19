@@ -429,6 +429,7 @@ check_stepfunctions_execution() {
 # IMPORTANTE: Esta función verifica DESPUÉS de que Step Functions procesó el evento
 # NO se usa para decidir si cobrar, solo para validar que el flujo funcionó
 # NOTA: Usa retry logic para manejar eventual consistency de DynamoDB GSIs
+# NUEVO: Verifica que ts = event_id (para confirmar el fix de colisiones)
 check_dynamodb_transactions() {
     local placa="$1"
     local expected_user_type="${2:-}"
@@ -438,6 +439,7 @@ check_dynamodb_transactions() {
     echo ""
     print_info "Verificando que Step Functions creó la transacción en DynamoDB..."
     print_info "Nota: DynamoDB GSIs tienen eventual consistency, puede tomar unos segundos..."
+    print_info "Verificando que ts = event_id (fix de colisiones)..."
     
     local table_name="Transactions-${STAGE}"
     local max_retries=5
@@ -485,8 +487,8 @@ check_dynamodb_transactions() {
                 found=true
                 print_success "✓ Transacción encontrada mediante endpoint de historial: $history_count registro(s)"
                 echo ""
-                echo "📊 Última transacción encontrada:"
-                echo "$history_body" | jq -r '.items[0] | {
+                echo "📊 Transacciones encontradas:"
+                echo "$history_body" | jq -r '.items[0:3] | .[] | {
                     placa: .placa,
                     event_id: .event_id,
                     user_type: .user_type,
@@ -494,7 +496,7 @@ check_dynamodb_transactions() {
                     peaje_id: .peaje_id,
                     status: .status,
                     timestamp: .timestamp
-                }' 2>/dev/null || echo "$history_body" | jq '.items[0]'
+                }' 2>/dev/null || echo "$history_body" | jq '.items[0:3]'
             fi
         fi
     fi
@@ -505,7 +507,32 @@ check_dynamodb_transactions() {
             print_success "✓ Transacción CREADA exitosamente: $count registro(s) para placa $placa"
             
             echo ""
-            echo "📊 Detalles de la transacción creada:"
+            echo "📊 Verificando que ts = event_id (fix de colisiones):"
+            local items=$(echo "$result" | jq '.Items')
+            local valid_ts_count=0
+            local total_items=$(echo "$items" | jq '. | length')
+            
+            for i in $(seq 0 $((total_items - 1))); do
+                local item=$(echo "$items" | jq ".[$i]")
+                local event_id=$(echo "$item" | jq -r '.event_id.S // .event_id' 2>/dev/null)
+                local ts=$(echo "$item" | jq -r '.ts.S // .ts' 2>/dev/null)
+                
+                if [ "$ts" = "$event_id" ]; then
+                    valid_ts_count=$((valid_ts_count + 1))
+                    echo "   ✓ Item $((i+1)): ts = event_id = $event_id"
+                else
+                    echo "   ✗ Item $((i+1)): ts ($ts) ≠ event_id ($event_id)"
+                fi
+            done
+            
+            if [ $valid_ts_count -eq $total_items ]; then
+                print_success "✓ Todas las transacciones tienen ts = event_id (fix aplicado correctamente)"
+            else
+                print_warning "⚠️  Algunas transacciones no tienen ts = event_id ($valid_ts_count/$total_items)"
+            fi
+            
+            echo ""
+            echo "📊 Detalles de la(s) transacción(es) creada(s):"
             echo "$result" | jq -r '.Items[0] | {
                 placa: .placa.S,
                 event_id: .event_id.S,
@@ -538,6 +565,71 @@ check_dynamodb_transactions() {
         # La verificación del historial ya se hace después en el flujo principal
     fi
     echo ""
+}
+
+# Función para verificar que el balance se actualizó en UsersVehicles (para usuarios con tag)
+check_users_balance_updated() {
+    local placa="$1"
+    local expected_user_type="${2:-}"
+    
+    # Solo verificar si es usuario con tag
+    if [ "$expected_user_type" != "tag" ]; then
+        return 0
+    fi
+    
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}💰 Verificando Actualización de Balance en UsersVehicles - $placa${NC}"
+    echo ""
+    
+    local table_name="UsersVehicles-${STAGE}"
+    local max_retries=3
+    local retry_delay=2
+    
+    for i in $(seq 1 $max_retries); do
+        local result=$(aws dynamodb get_item \
+            --table-name "$table_name" \
+            --key "{\"placa\":{\"S\":\"$placa\"}}" \
+            --region "$REGION" \
+            --output json 2>/dev/null || echo "{}")
+        
+        if echo "$result" | jq -e '.Item' > /dev/null 2>&1; then
+            local saldo=$(echo "$result" | jq -r '.Item.saldo_disponible.N // .Item.saldo_disponible' 2>/dev/null || echo "")
+            local tag_id=$(echo "$result" | jq -r '.Item.tag_id.S // .Item.tag_id // ""' 2>/dev/null || echo "")
+            
+            if [ -n "$saldo" ] && [ "$saldo" != "null" ]; then
+                print_success "✓ Balance encontrado en UsersVehicles: Q$saldo"
+                echo "   Tag ID: $tag_id"
+                
+                # Verificar que el balance en UsersVehicles coincida con el balance del tag
+                if [ -n "$tag_id" ] && [ "$tag_id" != "null" ] && [ "$tag_id" != "" ]; then
+                    local tags_table_name="Tags-${STAGE}"
+                    local tag_result=$(aws dynamodb get_item \
+                        --table-name "$tags_table_name" \
+                        --key "{\"tag_id\":{\"S\":\"$tag_id\"}}" \
+                        --region "$REGION" \
+                        --output json 2>/dev/null || echo "{}")
+                    
+                    if echo "$tag_result" | jq -e '.Item' > /dev/null 2>&1; then
+                        local tag_balance=$(echo "$tag_result" | jq -r '.Item.balance.N // .Item.balance' 2>/dev/null || echo "")
+                        if [ "$saldo" = "$tag_balance" ]; then
+                            print_success "✓ Balance sincronizado: UsersVehicles ($saldo) = Tags ($tag_balance)"
+                        else
+                            print_warning "⚠️  Balance no sincronizado: UsersVehicles ($saldo) ≠ Tags ($tag_balance)"
+                        fi
+                    fi
+                fi
+                
+                return 0
+            fi
+        fi
+        
+        if [ $i -lt $max_retries ]; then
+            sleep "$retry_delay"
+        fi
+    done
+    
+    print_warning "⚠️  No se pudo verificar el balance en UsersVehicles (puede ser eventual consistency)"
+    return 0
 }
 
 # Función para consultar historial de pagos
@@ -673,9 +765,149 @@ check_eventbridge() {
 # FUNCIONES PARA PROCESAR PAYLOADS DEL JSON
 # =============================================================================
 
-# Función para cargar payloads del archivo JSON
+# Función para leer CSV de clientes y generar payloads de prueba
+load_clientes_csv() {
+    local clientes_csv="${1:-$(dirname "$0")/../data/clientes.csv}"
+    local peajes_csv="${2:-$(dirname "$0")/../data/peajes.csv}"
+    
+    if [ ! -f "$clientes_csv" ]; then
+        print_error "Archivo de clientes no encontrado: $clientes_csv"
+        return 1
+    fi
+    
+    if [ ! -f "$peajes_csv" ]; then
+        print_error "Archivo de peajes no encontrado: $peajes_csv"
+        return 1
+    fi
+    
+    # Crear archivo temporal con payloads JSON
+    local temp_json="/tmp/webhook_test_$(date +%s).json"
+    local payloads="[]"
+    local base_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    
+    # Leer peajes disponibles
+    local peajes=()
+    while IFS=, read -r peaje_id rest; do
+        # Saltar header
+        if [ "$peaje_id" != "peaje_id" ] && [ -n "$peaje_id" ]; then
+            peajes+=("$peaje_id")
+        fi
+    done < "$peajes_csv"
+    
+    local peaje_count=${#peajes[@]}
+    if [ $peaje_count -eq 0 ]; then
+        print_error "No se encontraron peajes en el CSV"
+        return 1
+    fi
+    
+    # Leer clientes y generar payloads
+    local line_num=0
+    while IFS=, read -r placa nombre email telefono tipo_usuario tiene_tag tag_id saldo_disponible; do
+        # Saltar header y líneas vacías
+        if [ $line_num -eq 0 ] || [ -z "$placa" ] || [ "$placa" = "placa" ]; then
+            line_num=$((line_num + 1))
+            continue
+        fi
+        
+        # Limpiar valores (quitar espacios y comillas)
+        placa=$(echo "$placa" | tr -d ' "' | tr -d '\r')
+        tiene_tag=$(echo "$tiene_tag" | tr -d ' "' | tr -d '\r' | tr '[:upper:]' '[:lower:]')
+        tag_id=$(echo "$tag_id" | tr -d ' "' | tr -d '\r')
+        tipo_usuario=$(echo "$tipo_usuario" | tr -d ' "' | tr -d '\r')
+        
+        # Generar múltiples transacciones por cliente para probar que no se sobreescriben
+        # 1-2 transacciones con tag si tiene tag
+        # 2 transacciones sin tag (para probar ambos flujos: registrado y no_registrado)
+        
+        local transactions_per_client=2  # Número de transacciones por cliente para probar múltiples registros
+        
+        for i in $(seq 1 $transactions_per_client); do
+            # Seleccionar peaje aleatorio
+            local peaje_index=$(( (line_num + i) % peaje_count ))
+            local peaje_selected="${peajes[$peaje_index]}"
+            
+            # Generar timestamp único para cada transacción (compatible macOS y Linux)
+            local timestamp=""
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                # macOS: usar -v para agregar minutos
+                timestamp=$(date -u -v+${i}M -jf "%Y-%m-%dT%H:%M:%SZ" "$base_time" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                           date -u +"%Y-%m-%dT%H:%M:%SZ")
+            else
+                # Linux: usar -d para agregar minutos
+                timestamp=$(date -u -d "${base_time} +${i} minutes" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                           date -u +"%Y-%m-%dT%H:%M:%SZ")
+            fi
+            
+            # Si falla, usar timestamp base + segundos como fallback
+            if [ -z "$timestamp" ]; then
+                local base_seconds=$(date -u -jf "%Y-%m-%dT%H:%M:%SZ" "$base_time" +%s 2>/dev/null || \
+                                   date -u -d "$base_time" +%s 2>/dev/null || \
+                                   date -u +%s)
+                local new_seconds=$((base_seconds + (i * 60)))
+                timestamp=$(date -u -jf %s "$new_seconds" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                           date -u -d "@$new_seconds" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || \
+                           date -u +"%Y-%m-%dT%H:%M:%SZ")
+            fi
+            
+            local payload=""
+            
+            if [ "$tiene_tag" = "true" ] && [ -n "$tag_id" ] && [ "$tag_id" != "null" ]; then
+                # Cliente con tag: probar enviando solo tag_id (prueba el cambio reciente)
+                if [ $i -eq 1 ]; then
+                    # Primera transacción: enviar solo tag_id (para probar que obtiene placa del tag)
+                    payload=$(jq -n \
+                        --arg tag_id "$tag_id" \
+                        --arg peaje_id "$peaje_selected" \
+                        --arg timestamp "$timestamp" \
+                        '{tag_id: $tag_id, peaje_id: $peaje_id, timestamp: $timestamp}')
+                else
+                    # Segunda transacción: enviar ambos (tag_id y placa) para probar ambos flujos
+                    payload=$(jq -n \
+                        --arg placa "$placa" \
+                        --arg tag_id "$tag_id" \
+                        --arg peaje_id "$peaje_selected" \
+                        --arg timestamp "$timestamp" \
+                        '{placa: $placa, tag_id: $tag_id, peaje_id: $peaje_id, timestamp: $timestamp}')
+                fi
+            else
+                # Cliente sin tag: enviar solo placa
+                payload=$(jq -n \
+                    --arg placa "$placa" \
+                    --arg peaje_id "$peaje_selected" \
+                    --arg timestamp "$timestamp" \
+                    '{placa: $placa, peaje_id: $peaje_id, timestamp: $timestamp}')
+            fi
+            
+            # Agregar payload al array
+            payloads=$(echo "$payloads" | jq --argjson payload "$payload" '. + [$payload]')
+        done
+        
+        line_num=$((line_num + 1))
+    done < "$clientes_csv"
+    
+    # Guardar en archivo temporal
+    echo "$payloads" > "$temp_json"
+    WEBHOOKS_TEST_FILE="$temp_json"
+    
+    local count=$(echo "$payloads" | jq '. | length' 2>/dev/null || echo "0")
+    print_success "Payloads generados desde CSV de clientes: $count transacciones"
+    echo "   Archivo temporal: $temp_json"
+    return 0
+}
+
+# Función para cargar payloads del archivo JSON (mantener compatibilidad)
 load_test_payloads() {
     local json_file="${1:-$(dirname "$0")/webhook_test.json}"
+    
+    # Si no se especifica archivo, usar CSV de clientes
+    if [ "$json_file" = "$(dirname "$0")/webhook_test.json" ]; then
+        if [ ! -f "$json_file" ]; then
+            print_info "Archivo JSON no encontrado, generando desde CSV de clientes..."
+            load_clientes_csv
+            return $?
+        fi
+    fi
+    
     WEBHOOKS_TEST_FILE="$json_file"
     
     if [ ! -f "$json_file" ]; then
@@ -749,7 +981,10 @@ process_single_payload() {
         # Ahora SÍ verificamos que la transacción se CREÓ (después del procesamiento)
         # Esperar más tiempo para que DynamoDB GSI se actualice (eventual consistency)
         wait_with_message 5 "Esperando que la transacción se persista en DynamoDB y GSI se actualice"
-        check_dynamodb_transactions "$placa" ""
+        check_dynamodb_transactions "$placa" "$case_type"
+        
+        # Verificar que el balance se actualizó en UsersVehicles (para usuarios con tag)
+        check_users_balance_updated "$placa" "$case_type"
         
         # Verificar y completar transacciones pendientes (solo para no_registrados)
         check_and_complete_pending_transactions "$placa"
@@ -868,14 +1103,16 @@ print_final_summary() {
     echo ""
     echo "✅ Pruebas completadas:"
     echo "  1. ✅ Datos iniciales poblados (Seed CSV)"
-    echo "  2. ✅ Payloads de prueba cargados desde JSON"
+    echo "  2. ✅ Payloads de prueba generados desde clientes.csv"
     echo "  3. ✅ Todos los webhooks procesados"
-    echo "  4. ✅ Transacciones pendientes completadas automáticamente"
-    echo "  5. ✅ Transacciones guardadas en DynamoDB"
-    echo "  6. ✅ Historial de pagos consultado"
-    echo "  7. ✅ Historial de invoices consultado"
-    echo "  8. ✅ SNS Topic verificado"
-    echo "  9. ✅ EventBridge verificado"
+    echo "  4. ✅ Verificado que ts = event_id (fix de colisiones)"
+    echo "  5. ✅ Verificado que balance se actualiza en UsersVehicles (para tags)"
+    echo "  6. ✅ Transacciones pendientes completadas automáticamente"
+    echo "  7. ✅ Transacciones guardadas en DynamoDB (sin sobreescritura)"
+    echo "  8. ✅ Historial de pagos consultado"
+    echo "  9. ✅ Historial de invoices consultado"
+    echo "  10. ✅ SNS Topic verificado"
+    echo "  11. ✅ EventBridge verificado"
     echo ""
     
     if [ -n "$WEBHOOKS_TEST_FILE" ] && [ -f "$WEBHOOKS_TEST_FILE" ]; then

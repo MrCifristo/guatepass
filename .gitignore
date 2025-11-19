@@ -1,5 +1,7 @@
 # AWS SAM Build artifacts
 .aws-sam/
+**/.aws-sam/
+infrastructure/.aws-sam/
 packaged.yaml
 packaged-template.yaml
 samconfig.toml.bak
