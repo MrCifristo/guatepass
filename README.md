@@ -59,28 +59,29 @@ El sistema combina un **flujo síncrono** (respuesta rápida al webhook) y **pro
 
 ```
 guatepass/
-├─ README.md                        # Documentación ejecutiva y técnica
+├─ README.md
 ├─ docs/
-│  ├─ arquitectura.png               # Diagrama Lucidchart
-│  ├─ 01-adr-architecture.md         # Decisiones de diseño justificadas
-│  ├─ 02-api-contracts.md            # Contratos REST + ejemplos Postman
-│  ├─ 03-event-schemas.md            # Estructuras JSON de eventos
-│  └─ dashboard/                     # Capturas CloudWatch
+│  ├─ 00-vision.md / 01-adr-architecture.md
+│  ├─ 02-api-contracts.md / 03-event-schemas.md / 04-observability.md
+│  ├─ GUIA_POSTMAN_MANUAL.md, CHECKLIST-ENTREGABLES.md, etc.
+│  └─ dashboard/
+│     └─ README.md                   # Cómo abrir el dashboard de CloudWatch
 ├─ infrastructure/
-│  ├─ template.yaml                  # Infraestructura (SAM)
-│  ├─ sfn/process_toll.asl.json      # Step Functions definition
-│  └─ policies/roles.yml             # IAM Roles y Policies
+│  ├─ template.yaml                  # SAM (todos los recursos)
+│  ├─ DEPLOY.md / samconfig.toml / events/
+│  └─ setup.sh                       # script de prerequisitos
+├─ scripts/
+│  └─ load_csv_data.py               # utilidades opcionales
 ├─ src/
-│  ├─ functions/
-│  │  ├─ ingest/                     # Lambda para ingesta inicial
-│  │  ├─ compute/                    # Lógica de cálculo de cobros
-│  │  └─ notify/                     # Lambda para SNS
-│  └─ layers/                        # Código compartido
-├─ data/
-│  ├─ clientes.csv                   # Base inicial de usuarios
-│  └─ tolls_catalog.json             # Catálogo de peajes
-└─ tests/
-   └─ e2e.http                       # Pruebas de endpoints (Postman)
+│  └─ functions/                     # Lambdas (ingest, compute, notify, etc.)
+├─ tests/
+│  ├─ webhook_test.json              # 30 casos masivos de webhook
+│  ├─ test_webhook.sh                # script básico de smoke tests
+│  ├─ test-flujo-completo-mejorado.sh# usa webhook_test.json
+│  └─ diagnose-transaction-flow.sh   # debugging asistido
+└─ data/
+   ├─ clientes.csv                   # carga inicial de usuarios
+   └─ tolls_catalog.json             # catálogo de peajes
 ```
 
 ## 6. Despliegue y Ejecución
@@ -116,18 +117,33 @@ GET /history/payments/P-123ABC
 GET /history/invoices/P-123ABC
 ```
 
+### Dataset y scripts de prueba
+- `tests/webhook_test.json` contiene **30 escenarios** (usuarios con tag, registrados y no registrados) que alimentan los scripts de pruebas manuales.
+- `tests/test-flujo-completo-mejorado.sh` y `tests/test_webhook.sh` leen este dataset para automatizar las llamadas `curl` después del deploy.
+
 ## 8. Observabilidad y Monitoreo
 
-**Dashboard de CloudWatch**  
-Incluye métricas de:
-- Invocaciones y errores de Lambda.
-- Latencia y códigos de error en API Gateway.
-- Lecturas/escrituras y throttles de DynamoDB.
-- Tiempos de ejecución de Step Functions.
-- Mensajes publicados en SNS.
+**Dashboard de CloudWatch (`guatepass-dashboard-<stage>`)**  
+Se crea automáticamente desde el template (`MonitoringDashboard`) e incluye:
+- Invocaciones, errores y duración de todas las Lambdas (`ingest`, `validate`, `calculate`, `persist`, `notify`, `read_history`, `complete_pending`, `update_tag_balance`).
+- Requests, latencia y errores 4xx/5xx de API Gateway (`ApiId` + `Stage`).
+- Consumo de lecturas/escrituras y throttles para `Transactions`, `Invoices`, `UsersVehicles`, `Tags` y `TollsCatalog`.
+- Ejecuciones/errores del Step Function `guatepass-process-toll-<stage>`.
+- Mensajes publicados y fallidos en el topic `Notifications-<stage>`.
 
-Logs organizados por grupos:  
-`/aws/lambda/guatepass-ingest`, `/aws/states/ProcessTollStateMachine`, etc.
+<img src="SCR-20251117-ugqe.png" alt="Arquitectura Cloud GuatePass" />
+<img src="SCR-20251117-ugyo.png" alt="Arquitectura Cloud GuatePass" />
+
+Para abrirlo:
+```bash
+aws cloudwatch get-dashboard \
+  --dashboard-name guatepass-dashboard-dev \
+  --query 'DashboardBody' --output text | jq
+```
+o desde la consola (**CloudWatch → Dashboards**). Detalles adicionales en `docs/dashboard/README.md`.
+
+**Logs estructurados:**  
+Cada Lambda escribe en su grupo `/aws/lambda/guatepass-*-<stage>`; Step Functions en `/aws/stepfunctions/guatepass-process-toll-<stage>` con retención de 14 días. Usa `aws logs tail <log-group> --follow` para diagnóstico rápido.
 
 ## 9. Buenas Prácticas de Implementación
 

@@ -289,6 +289,14 @@ curl -X POST $WEBHOOK_URL \
 
 **Nota**: Ya existe un script más completo en `tests/test_webhook.sh` que puedes usar directamente.
 
+**Dataset masivo (`tests/webhook_test.json`)**  
+Para simular tráfico de 30 vehículos distintos (con tag, registrados, no registrados y errores deliberados) usa:
+```bash
+cd tests
+./test-flujo-completo-mejorado.sh "$WEBHOOK_URL" ./webhook_test.json
+```
+El script iterará cada payload del JSON y reportará las respuestas del API Gateway.
+
 ---
 
 ## 6. Verificación de Resultados
@@ -474,4 +482,3 @@ Antes de considerar el sistema listo, verifica:
 - Timestamp (cuando ocurrió el evento)
 
 El sistema procesa automáticamente el resto del flujo de forma asíncrona.
-
