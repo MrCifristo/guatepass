@@ -12,7 +12,7 @@ import csv
 import os
 import sys
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 import boto3
 from botocore.exceptions import ClientError
 
@@ -73,17 +73,30 @@ def load_clientes(dynamodb, stage, csv_path):
                 continue
             
             # Preparar datos del usuario
+            email_value = row.get('email', '').strip()
+            telefono_value = row.get('telefono', '').strip()
+            tag_id_value = row.get('tag_id', '').strip()
+            
             user_item = {
                 'placa': placa,
                 'nombre': row.get('nombre', '').strip(),
-                'email': row.get('email', '').strip() or None,
-                'telefono': row.get('telefono', '').strip() or None,
                 'tipo_usuario': row.get('tipo_usuario', 'no_registrado').strip(),
                 'tiene_tag': to_bool(row.get('tiene_tag', 'false')),
-                'tag_id': row.get('tag_id', '').strip() or None,
                 'saldo_disponible': to_decimal(row.get('saldo_disponible', '0.00')),
-                'created_at': datetime.utcnow().isoformat() + 'Z'
+                'created_at': datetime.now(timezone.utc).isoformat()
             }
+            
+            # Solo incluir email si tiene valor (índice sparse - no puede ser NULL para GSI)
+            if email_value:
+                user_item['email'] = email_value
+            
+            # Solo incluir telefono si tiene valor
+            if telefono_value:
+                user_item['telefono'] = telefono_value
+            
+            # Solo incluir tag_id si tiene valor
+            if tag_id_value:
+                user_item['tag_id'] = tag_id_value
             
             # Guardar usuario
             try:
@@ -96,7 +109,7 @@ def load_clientes(dynamodb, stage, csv_path):
                 continue
             
             # Si tiene tag, crear/actualizar registro en tabla Tags
-            if user_item['tiene_tag'] and user_item['tag_id']:
+            if user_item.get('tiene_tag') and user_item.get('tag_id'):
                 tag_item = {
                     'tag_id': user_item['tag_id'],
                     'placa': placa,
@@ -104,8 +117,8 @@ def load_clientes(dynamodb, stage, csv_path):
                     'balance': user_item['saldo_disponible'],
                     'debt': Decimal('0.00'),
                     'late_fee': Decimal('0.00'),
-                    'created_at': datetime.utcnow().isoformat() + 'Z',
-                    'last_updated': datetime.utcnow().isoformat() + 'Z'
+                    'created_at': datetime.now(timezone.utc).isoformat(),
+                    'last_updated': datetime.now(timezone.utc).isoformat()
                 }
                 try:
                     tags_table.put_item(Item=tag_item)
@@ -147,7 +160,7 @@ def load_peajes(dynamodb, stage, csv_path):
                 'tarifa_no_registrado': to_decimal(row.get('monto_no_registrado', '0.00')),
                 'tarifa_registrado': to_decimal(row.get('monto_registrado', '0.00')),
                 'tarifa_tag': to_decimal(row.get('monto_tag', '0.00')),
-                'created_at': datetime.utcnow().isoformat() + 'Z'
+                'created_at': datetime.now(timezone.utc).isoformat()
             }
             
             # Guardar peaje

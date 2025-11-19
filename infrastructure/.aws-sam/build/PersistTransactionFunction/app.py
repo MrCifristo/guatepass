@@ -79,7 +79,10 @@ def lambda_handler(event, context):
         if not timestamp:
             timestamp = datetime.utcnow().isoformat() + 'Z'
         
-        ts = timestamp  # Usar el mismo timestamp para ts (RANGE key) y timestamp (GSI)
+        # Usar event_id como ts (RANGE key) para garantizar unicidad
+        # El timestamp del evento se guarda en el campo 'timestamp' para el GSI placa-timestamp-index
+        # Esto evita colisiones cuando dos transacciones de la misma placa tienen timestamps similares
+        ts = event_id  # Garantiza unicidad absoluta para cada transacción
         
         transaction_item = {
             'placa': placa,  # HASH key

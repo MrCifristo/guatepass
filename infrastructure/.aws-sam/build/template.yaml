@@ -544,11 +544,21 @@ Resources:
         Fn::Sub: ${ProjectName}-update-tag-balance-${StageName}
       CodeUri: UpdateTagBalanceFunction
       Handler: app.lambda_handler
-      Description: Actualiza balance del tag y maneja deuda/mora
+      Description: "Actualiza balance del tag y maneja deuda/mora. Tambi\xE9n actualiza\
+        \ saldo_disponible en UsersVehicles."
+      Environment:
+        Variables:
+          TAGS_TABLE:
+            Ref: Tags
+          USERS_TABLE:
+            Ref: UsersVehicles
       Policies:
       - DynamoDBCrudPolicy:
           TableName:
             Ref: Tags
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: UsersVehicles
     Metadata:
       SamResourceId: UpdateTagBalanceFunction
   CompletePendingTransactionFunction:

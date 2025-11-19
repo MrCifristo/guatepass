@@ -483,10 +483,16 @@ Resources:
       FunctionName: !Sub "${ProjectName}-update-tag-balance-${StageName}"
       CodeUri: ../src/functions/update_tag_balance
       Handler: app.lambda_handler
-      Description: Actualiza balance del tag y maneja deuda/mora
+      Description: Actualiza balance del tag y maneja deuda/mora. También actualiza saldo_disponible en UsersVehicles.
+      Environment:
+        Variables:
+          TAGS_TABLE: !Ref Tags
+          USERS_TABLE: !Ref UsersVehicles
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref Tags
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersVehicles
 
   CompletePendingTransactionFunction:
     Type: AWS::Serverless::Function

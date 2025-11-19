@@ -151,7 +151,7 @@ def lambda_handler(event, context):
 
         print(json.dumps({
             'event_id': event_id,
-            'placa': body['placa'],
+            'placa': placa,  # Usar variable placa (obtenida del tag si es necesario)
             'peaje_id': body['peaje_id'],
             'status': 'queued',
             'eventbridge_response': response

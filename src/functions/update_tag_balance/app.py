@@ -8,6 +8,7 @@ from botocore.exceptions import ClientError
 dynamodb = boto3.resource('dynamodb')
 
 TAGS_TABLE = os.environ.get('TAGS_TABLE')
+USERS_TABLE = os.environ.get('USERS_TABLE')
 
 # Configuración de mora
 LATE_FEE_PER_MINUTE = Decimal('1.00')  # 1 GTQ por cada minuto de atraso
@@ -141,6 +142,32 @@ def lambda_handler(event, context):
             ExpressionAttributeValues=expression_values,
             ReturnValues='ALL_NEW'
         )
+        
+        # Actualizar saldo_disponible en UsersVehicles para mantener consistencia
+        placa = tag.get('placa')
+        if placa and USERS_TABLE:
+            try:
+                users_table = dynamodb.Table(USERS_TABLE)
+                users_table.update_item(
+                    Key={'placa': placa},
+                    UpdateExpression='SET saldo_disponible = :balance',
+                    ExpressionAttributeValues={
+                        ':balance': new_balance
+                    }
+                )
+                print(json.dumps({
+                    'message': 'Updated UsersVehicles saldo_disponible',
+                    'placa': placa,
+                    'new_balance': float(new_balance)
+                }))
+            except Exception as e:
+                # No fallar si no se puede actualizar UsersVehicles
+                # El tag ya fue actualizado correctamente
+                print(json.dumps({
+                    'warning': 'Could not update UsersVehicles saldo_disponible',
+                    'placa': placa,
+                    'error': str(e)
+                }))
         
         result = {
             'tag_id': tag_id,
