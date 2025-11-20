@@ -5,16 +5,20 @@
 # =============================================================================
 # Este script prueba el flujo completo del sistema:
 # 1. Obtiene información del stack CloudFormation automáticamente
-# 2. (Opcional) Poblar datos iniciales (Seed CSV usando script Python local)
-# 3. Cargar payloads de prueba desde webhook_test.json
-# 4. Enviar todos los eventos de peaje del archivo JSON
-# 5. Verificar y completar automáticamente transacciones pendientes
-# 6. Verificar resultados en DynamoDB
-# 7. Consultar historial de pagos e invoices
-# 8. Verificar SNS Topic y EventBridge
+# 2. Genera payloads de prueba desde clientes.csv (o usa webhook_test.json si existe)
+# 3. Envía todos los eventos de peaje a través del webhook
+# 4. Verifica que Step Functions procesa cada evento correctamente
+# 5. Verifica que ts = event_id (fix de colisiones)
+# 6. Verifica que balance se actualiza en UsersVehicles (para tags)
+# 7. Verifica y completa automáticamente transacciones pendientes
+# 8. Consulta historial de pagos e invoices
+# 9. Verifica SNS Topic y EventBridge
+# 
+# NOTA: Este script asume que los datos iniciales ya están cargados en DynamoDB.
+#       Para cargar datos, ejecuta: python scripts/load_csv_data.py --stage dev
 # =============================================================================
 # Uso: ./test-flujo-completo-mejorado.sh [STACK_NAME]
-#      LOAD_INITIAL_DATA=true ./test-flujo-completo-mejorado.sh  # Para cargar datos
+#      Para cargar datos iniciales, ejecuta: python scripts/load_csv_data.py --stage dev
 # =============================================================================
 
 set -euo pipefail  # Salir si hay errores, variables no definidas, o pipes fallan
@@ -34,8 +38,8 @@ REGION="${AWS_REGION:-us-east-1}"
 STAGE="dev"
 PROJECT_NAME="guatepass"
 
-# Flag para cargar datos iniciales (por defecto: false, ya que los datos ya están cargados)
-LOAD_INITIAL_DATA="${LOAD_INITIAL_DATA:-false}"
+# Nota: Este script solo ejecuta pruebas de transacciones.
+# Para cargar datos iniciales, ejecuta manualmente: python scripts/load_csv_data.py --stage dev
 
 # Variables globales
 WEBHOOK_URL=""
@@ -171,52 +175,6 @@ wait_for_step_function() {
     return 1
 }
 
-# Función para poblar datos iniciales
-seed_data() {
-    print_header "PASO 1: Poblar Datos Iniciales (Seed CSV)"
-    
-    # Usar el script Python local en lugar de Lambda
-    local script_path="$(dirname "$0")/../scripts/load_csv_data.py"
-    
-    if [ ! -f "$script_path" ]; then
-        print_warning "Script load_csv_data.py no encontrado, intentando con Lambda..."
-        local seed_function_name="${PROJECT_NAME}-seed-csv-${STAGE}"
-        
-        local result=$(aws lambda invoke \
-            --function-name "$seed_function_name" \
-            --region "$REGION" \
-            --payload '{}' \
-            --output json \
-            /tmp/seed-response.json 2>&1)
-        
-        if [ $? -eq 0 ] && [ -f /tmp/seed-response.json ]; then
-            local seed_output=$(cat /tmp/seed-response.json)
-            if echo "$seed_output" | jq -e '.errorMessage' > /dev/null 2>&1; then
-                print_error "Error en la función seed_csv:"
-                echo "$seed_output" | jq '.'
-                rm -f /tmp/seed-response.json
-                exit 1
-            fi
-            print_success "Datos iniciales poblados exitosamente"
-            echo "$seed_output" | jq -r '.body // .' | jq '.' 2>/dev/null || echo "$seed_output"
-            rm -f /tmp/seed-response.json
-        else
-            print_error "Error al ejecutar seed_csv"
-            echo "$result"
-            exit 1
-        fi
-    else
-        print_info "Usando script Python local para cargar datos..."
-        if python3 "$script_path" --stage "$STAGE" --region "$REGION" 2>/dev/null; then
-            print_success "Datos iniciales cargados exitosamente"
-        else
-            print_error "Error al cargar datos con el script Python"
-            exit 1
-        fi
-    fi
-    
-    wait_with_message 3 "Esperando que los datos se propaguen en DynamoDB"
-}
 
 # Función para enviar evento de webhook
 send_webhook_event() {
@@ -1102,17 +1060,16 @@ print_final_summary() {
     
     echo ""
     echo "✅ Pruebas completadas:"
-    echo "  1. ✅ Datos iniciales poblados (Seed CSV)"
-    echo "  2. ✅ Payloads de prueba generados desde clientes.csv"
-    echo "  3. ✅ Todos los webhooks procesados"
-    echo "  4. ✅ Verificado que ts = event_id (fix de colisiones)"
-    echo "  5. ✅ Verificado que balance se actualiza en UsersVehicles (para tags)"
-    echo "  6. ✅ Transacciones pendientes completadas automáticamente"
-    echo "  7. ✅ Transacciones guardadas en DynamoDB (sin sobreescritura)"
-    echo "  8. ✅ Historial de pagos consultado"
-    echo "  9. ✅ Historial de invoices consultado"
-    echo "  10. ✅ SNS Topic verificado"
-    echo "  11. ✅ EventBridge verificado"
+    echo "  1. ✅ Payloads de prueba generados desde clientes.csv"
+    echo "  2. ✅ Todos los webhooks procesados"
+    echo "  3. ✅ Verificado que ts = event_id (fix de colisiones)"
+    echo "  4. ✅ Verificado que balance se actualiza en UsersVehicles (para tags)"
+    echo "  5. ✅ Transacciones pendientes completadas automáticamente"
+    echo "  6. ✅ Transacciones guardadas en DynamoDB (sin sobreescritura)"
+    echo "  7. ✅ Historial de pagos consultado"
+    echo "  8. ✅ Historial de invoices consultado"
+    echo "  9. ✅ SNS Topic verificado"
+    echo "  10. ✅ EventBridge verificado"
     echo ""
     
     if [ -n "$WEBHOOKS_TEST_FILE" ] && [ -f "$WEBHOOKS_TEST_FILE" ]; then
@@ -1168,33 +1125,28 @@ main() {
     # Obtener información del stack
     get_stack_info
     
-    # Paso 1: Poblar datos iniciales (opcional, solo si LOAD_INITIAL_DATA=true)
-    if [ "$LOAD_INITIAL_DATA" = "true" ]; then
-        seed_data
-    else
-        print_info "Omitiendo carga de datos iniciales (ya están cargados)"
-        echo "   Para cargar datos, ejecuta: LOAD_INITIAL_DATA=true ./test-flujo-completo-mejorado.sh"
-        echo ""
-    fi
+    print_info "Nota: Este script asume que los datos ya están cargados en DynamoDB"
+    echo "   Para cargar datos iniciales, ejecuta: python scripts/load_csv_data.py --stage dev"
+    echo ""
     
-    # Paso 2: Cargar payloads de prueba desde JSON
+    # Paso 1: Cargar payloads de prueba desde JSON o CSV
     if ! load_test_payloads; then
         print_error "No se pudo cargar el archivo de pruebas"
         exit 1
     fi
     
-    # Paso 3: Procesar todos los payloads
+    # Paso 2: Procesar todos los payloads
     # Opción 1: Procesar todos secuencialmente
     process_all_payloads
     
     # Opción 2: Procesar por categoría (comentado, descomentar si prefieres)
     # process_payloads_by_category
     
-    # Paso 4: Verificar servicios
+    # Paso 3: Verificar servicios
     check_sns_topic
     check_eventbridge
     
-    # Paso 5: Resumen final
+    # Paso 4: Resumen final
     print_final_summary
 }
 
